@@ -357,9 +357,7 @@ resource "aws_instance" "server" {
       /usr/local/share/k3s-install.sh server \
       --node-ip="$PRIVATE_IP" \
       --advertise-address="$PRIVATE_IP" \
-      --flannel-backend=vxlan \
-      --disable=servicelb \
-      --disable=local-storage
+      --flannel-backend=vxlan
 
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     KUBECTL=/usr/local/bin/kubectl
