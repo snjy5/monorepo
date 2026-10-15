@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. Guard against running in sensitive locations ($HOME or root)
+current_dir="$(pwd -P)"
+home_dir="${HOME:-}"
+
+if [[ -n "$home_dir" && "$current_dir" == "$home_dir" ]]; then
+    printf "Error: Refusing to run gitp directly in \$HOME.\n" >&2
+    exit 1
+fi
+
+if [[ "$current_dir" == "/" ]]; then
+    printf "Error: Refusing to run gitp in root directory (/).\n" >&2
+    exit 1
+fi
+
+# 2. Verify current directory is inside a Git work tree
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    printf "Error: Not a git repository (or any parent up to mount point)\n" >&2
+    exit 1
+fi
+
+# 3. Stage all modifications, new files, and deletions
+git add -A
+
+# 4. Check if there are changes to commit
+if git diff --cached --quiet; then
+    printf "==> No changes staged to commit.\n"
+    
+    # Prompt to push anyway if there are unpushed local commits
+    current_branch="$(git branch --show-current 2>/dev/null || true)"
+    if [[ -n "$current_branch" ]] && git rev-parse "@{u}" >/dev/null 2>&1; then
+        ahead_count="$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
+        if (( ahead_count > 0 )); then
+            printf "==> Found %d unpushed commit(s). Pushing to remote...\n" "$ahead_count"
+            git push
+            exit 0
+        fi
+    fi
+    exit 0
+fi
+
+# 5. Commit with passed message, or open default editor if none provided
+if [[ $# -gt 0 ]]; then
+    git commit -m "$*"
+else
+    git commit
+fi
+
+# 6. Push to remote, automatically setting upstream if missing
+current_branch="$(git branch --show-current 2>/dev/null || true)"
+
+if [[ -n "$current_branch" ]] && ! git rev-parse "@{u}" >/dev/null 2>&1; then
+    default_remote="$(git remote 2>/dev/null | head -n1 || echo "origin")"
+    printf "==> Upstream not set. Setting upstream to %s/%s...\n" "$default_remote" "$current_branch"
+    git push -u "$default_remote" "$current_branch"
+else
+    git push
+fi
+
+printf "==> Done!\n"

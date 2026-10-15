@@ -1,0 +1,12 @@
+#!/bin/bash
+# Subshell is necessary otherwise two process opens FD3
+# eg: we don't want both $0 and tail to be open only tail 
+(
+# 10 second delay cpu wakeup latency for deep cstate 
+# let it slowly wakeup within 10 seconds (overkill, but max power efficient)
+exec 3> /dev/cpu_dma_latency
+echo 10000000 >&3
+
+# Need the shell open
+tail -f /dev/null # or pause
+)

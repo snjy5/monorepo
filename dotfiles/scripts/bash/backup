@@ -1,0 +1,63 @@
+#!/bin/env -iS bash
+sdcard=/sdcard
+dev=/dev/mmcblk0p1
+HOME=/home/void
+
+configs=(
+    .Xauthority
+    .Xmodmap
+   # .asoundrc
+    .bashrc
+    .bash_profile
+    .bin
+    .config
+    .gitconfig
+    .inputrc
+    .nvidia-settings-rc
+    .ssh
+    .tmux.conf
+    .vim
+    .xinitrc
+    .local
+)
+
+data=(
+    Capture
+    DCIM
+    Downloads
+    Movies
+    Music
+    Notes
+    Pictures
+    Recordings
+    Videos
+    Webcam
+    Databases
+    Archive
+)
+
+etc=(
+  /etc/default/grub
+  /etc/modprobe.d
+  /etc/modules-load.d
+  /etc/dracut.conf.d
+  /etc/hosts
+  /etc/resolv.conf
+  /etc/dnsmasq.conf
+  /etc/xbps.d
+  /etc/fstab
+  /etc/sudoers
+  /etc/openvpn
+  /etc/riseup-vpn.yaml
+  /etc/rc.local
+  /etc/wpa_supplicant/wpa_supplicant.conf
+)
+
+mkdir -p $sdcard
+mountpoint -q $sdcard || mount $dev $sdcard
+mkdir -p $sdcard/configs
+cd $HOME
+cp -ru --parents ${configs[@]} $sdcard/configs/
+cp -ru --parents ${etc[@]} $sdcard/configs/
+cp -ru --parents ${data[@]} $sdcard/
+sync

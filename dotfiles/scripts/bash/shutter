@@ -1,0 +1,4 @@
+#!/bin/bash
+DISPLAY=:0
+sleep 5
+xdotool key s

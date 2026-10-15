@@ -1,0 +1,33 @@
+name: Run
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+  workflow_dispatch:
+
+jobs:
+  Start:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v2
+      
+    - name: Setup chroot
+      run: ./gentoo.sh setup_chroot
+
+    - name: Chroot and setup gentoo
+      run: ./gentoo.sh setup_build
+
+    - name: Build and install pkgs
+      run: ./gentoo.sh build
+      
+    - name: Make binpkgs
+      run: ./gentoo.sh build_binpkgs
+
+    - name: Upload binpkgs
+      run: |
+        export GIT_TOKEN=${{ secrets.GIT_TOKEN }}
+        ./gentoo.sh upload
+        unset GIT_TOKEN

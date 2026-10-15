@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# net-ctl: Bluetooth, VPN, Filtered Blocking, and Router Synchronization
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="net-ctl"
+BLOCKLIST_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/net-ctl/blocklist.txt"
+
+log_info()  { printf "[INFO]  %s\n" "$*" >&2; }
+log_warn()  { printf "[WARN]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+elevate_if_needed() {
+    if [[ $EUID -ne 0 ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            exec sudo "$0" "$@"
+        else
+            log_error "Root privileges required for network mutations."
+            exit 1
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 1. Bluetooth Connection Engine
+# ------------------------------------------------------------------------------
+connect_bluetooth() {
+    local mac="${1:-}"
+
+    if [[ -z "$mac" ]]; then
+        # If no MAC passed, attempt auto-connecting to the first paired device
+        mac=$(bluetoothctl devices Paired | head -n1 | awk '{print $2}' || true)
+    fi
+
+    [[ -z "$mac" ]] && { log_error "No target Bluetooth MAC address provided or paired."; return 1; }
+
+    log_info "Connecting to Bluetooth target: $mac"
+    bluetoothctl power on >/dev/null 2>&1
+    bluetoothctl agent on >/dev/null 2>&1
+    bluetoothctl trust "$mac" >/dev/null 2>&1
+    bluetoothctl connect "$mac"
+
+    # PulseAudio / PipeWire auto-recovery check
+    sleep 3
+    if command -v pactl >/dev/null 2>&1; then
+        if ! pactl list cards | grep -q "bluez"; then
+            log_warn "Bluetooth audio sink missing. Refreshing audio daemon..."
+            systemctl --user restart pipewire wireplumber 2>/dev/null || pkill -HUP pulseaudio || true
+        fi
+    fi
+    printf "Bluetooth connection established: %s\n" "$mac"
+}
+
+# ------------------------------------------------------------------------------
+# 2. Parental / Scheduled Domain Blocklist Engine
+# ------------------------------------------------------------------------------
+manage_blocklist() {
+    local action="$1" # block | unblock | auto
+    elevate_if_needed filter "$action"
+
+    [[ ! -f "$BLOCKLIST_FILE" ]] && { log_warn "Blocklist file '$BLOCKLIST_FILE' not found."; return 0; }
+
+    case "$action" in
+        block)
+            log_info "Enforcing domain blocking in /etc/hosts..."
+            while IFS= read -r domain; do
+                [[ -z "$domain" || "$domain" =~ ^# ]] && continue
+                if ! grep -q "0.0.0.0 $domain" /etc/hosts; then
+                    printf "0.0.0.0 %s\n" "$domain" >> /etc/hosts
+                fi
+            done < "$BLOCKLIST_FILE"
+            # Terminate active browser sessions to clear internal DNS caches
+            pkill -2 firefox || pkill -2 chromium || true
+            printf "Domains blocked.\n"
+            ;;
+        unblock)
+            log_info "Clearing blocked domains from /etc/hosts..."
+            while IFS= read -r domain; do
+                [[ -z "$domain" || "$domain" =~ ^# ]] && continue
+                sed -i "/0\.0\.0\.0 ${domain//./\\.}$/d" /etc/hosts
+            done < "$BLOCKLIST_FILE"
+            sed -i '/^$/d' /etc/hosts
+            printf "Domains unblocked.\n"
+            ;;
+        auto)
+            # Alternate by day/hour: unblock during 15:00-18:00
+            local now
+            now=$(( 10#$(date +%H) * 60 + 10#$(date +%M) ))
+            if (( now >= 15*60 && now < 18*60 )); then
+                manage_blocklist unblock
+            else
+                manage_blocklist block
+            fi
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# 3. OpenVPN Tunnel Controller
+# ------------------------------------------------------------------------------
+control_vpn() {
+    local action="$1" # start | stop
+    local config="${2:-/etc/openvpn/client/riseup.conf}"
+
+    case "$action" in
+        start)
+            elevate_if_needed vpn start "$config"
+            if pgrep -x openvpn >/dev/null 2>&1; then
+                log_warn "OpenVPN process already running."
+                return 0
+            fi
+            [[ ! -f "$config" ]] && { log_error "Config file '$config' missing."; return 1; }
+            nohup openvpn --config "$config" >/dev/null 2>&1 &
+            printf "OpenVPN tunnel initiated.\n"
+            ;;
+        stop)
+            elevate_if_needed vpn stop
+            pkill -2 openvpn 2>/dev/null || true
+            printf "OpenVPN stopped.\n"
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# 4. Router Sync & IP Setup
+# ------------------------------------------------------------------------------
+sync_router() {
+    local mode="$1" # ssh | push | pull
+    shift || true
+
+    local router_ip
+    router_ip=$(ip route | awk '/default/ {print $3}' | head -n1)
+    local port="${ROUTER_PORT:-6666}"
+    local user="${ROUTER_USER:-root}"
+
+    [[ -z "$router_ip" ]] && { log_error "Default gateway IP not detected."; return 1; }
+
+    case "$mode" in
+        ssh)
+            ssh -C "${user}@${router_ip}" -p "$port"
+            ;;
+        push)
+            local local_path="$1"
+            local remote_path="$2"
+            scp -P "$port" -r "$local_path" "${user}@${router_ip}:${remote_path}"
+            ;;
+        pull)
+            local remote_path="$1"
+            local local_path="$2"
+            scp -P "$port" -r "${user}@${router_ip}:${remote_path}" "$local_path"
+            ;;
+    esac
+}
+
+setup_static_alias() {
+    local iface="${1:-wlan0}"
+    elevate_if_needed ip-alias "$iface"
+
+    local current_ip
+    current_ip=$(ip -4 route get 1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+    [[ -z "$current_ip" ]] && { log_error "No active upstream IP on interface."; return 1; }
+
+    local custom_ip="${current_ip%.*}.1"
+    ip address add "${custom_ip}/24" dev "$iface" 2>/dev/null || true
+    printf "Assigned alias IP: %s/24 on %s\n" "$custom_ip" "$iface"
+}
+
+# ------------------------------------------------------------------------------
+# 5. CLI Handling
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Network, Bluetooth, VPN & Router Utility
+
+Usage:
+  $PROG_NAME <command> [arguments]
+
+Commands:
+  bt          [MAC]                 Connects to Bluetooth device
+  filter      <block|unblock|auto>  Enforces hosts domain restrictions
+  vpn         <start|stop> [config] Starts or stops OpenVPN tunnel
+  router      <ssh|push|pull> [args] Syncs or opens shell to default gateway
+  ip-alias    [interface]           Assigns secondary .1 alias to subnet
+
+Examples:
+  $PROG_NAME bt
+  $PROG_NAME filter auto
+  $PROG_NAME router ssh
+  $PROG_NAME router push ./local_file /tmp/
+EOF
+    exit 0
+}
+
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        bt|bluetooth)    connect_bluetooth "$@" ;;
+        filter|parental) manage_blocklist "$@" ;;
+        vpn|riseup)      control_vpn "$@" ;;
+        router)          sync_router "$@" ;;
+        ip-alias)        setup_static_alias "$@" ;;
+        *)               show_help ;;
+    esac
+}
+
+main "$@"
+

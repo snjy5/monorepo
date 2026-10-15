@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+REPO=$(grep "url" "${PWD}/.git/config" | cut -d ' ' -f 3)
+git remote rm origin
+git reflog expire --expire=now --all 
+git prune
+git gc --aggressive --prune=now
+git remote add origin "${REPO}"
+
+# NOTE: DO NOT ADD `git clean` or similar, they will remove untracked files and never recoverable

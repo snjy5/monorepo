@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+t="$(mktemp)"
+invidious_instance="https://invidious.privacydev.net" ytfzf -L >"$t"
+mpv --no-audio-display --no-video --ytdl-raw-options=format-sort=acodec:m4a --ytdl-format='bestaudio' "$(cat "$t")"
+command rm -f "$t"

@@ -1,0 +1,22 @@
+# /etc/anacrontab: configuration file for anacron
+
+# See anacrontab(5) for details.
+
+# Start jobs at 6 o'clock
+# instead of midnight
+#START_HOURS_RANGE=6
+
+#days   delay   job-id          command
+#1	5	cron.daily	run-parts --report /etc/cron.daily
+#7	10	cron.weekly	run-parts --report /etc/cron.weekly
+#@monthly	15	cron.monthly	run-parts --report /etc/cron.monthly
+
+# when using systemd-cron these 3 standard jobs are disabled
+# and replaced by corresponding native systemd units
+# cron-(daily,weekly,monthly)-<job>.timer
+#  & cron-(daily,weekly,monthly)-<job>.service
+# that uses persistent timers to ensure that executions missed because
+# the system was off are run after boot
+#
+# these 3 records are left here as a reference on how
+# to write an anacrontab

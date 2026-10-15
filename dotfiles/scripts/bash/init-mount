@@ -1,0 +1,23 @@
+#!/bin/bash
+if [[ $1 == "mount" ]]; then
+    mount -t btrfs -o \
+        remount,rw,space_cache=v2,commit=60,ssd,exec,noatime,discard=async,compress=none,subvol=@root /
+    mkdir -p /snapshots
+    mount -t btrfs -o \
+        rw,space_cache=v2,commit=60,ssd,exec,noatime,discard=async,compress=none,subvol=@snapshots /dev/sda2 /snapshots
+    mount -t proc proc /proc 
+    mount -t sysfs sys /sys
+    mount -t devtmpfs dev /dev 
+    mount -o newinstance,ptmxmode=0666 devpts -t devpts /dev/pts
+    mount -o size=2G,noatime -t tmpfs tmpfs /dev/shm
+    mount -o noatime -t tmpfs tmpfs /tmp
+  #  mount /dev/mmcblk0p1 /sdcard -t exfat -o defaults,noatime,uid=1000,gid=1000
+elif [[ $1 == "umount" ]]; then
+    mount -o remount,ro /
+    mount -o remount,ro /sdcard
+    sync
+    sync
+    sync
+    umount -a -r 2>/dev/null
+    umount -l -a -r 2>/dev/null
+fi

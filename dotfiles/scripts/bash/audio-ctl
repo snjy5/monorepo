@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# audio-ctl: Universal Volume, Sound Daemon & Speech Application
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="audio-ctl"
+IS_TERMUX=0
+[[ -n "${TERMUX_VERSION:-}" || "${PREFIX:-}" =~ com.termux ]] && IS_TERMUX=1
+
+log_info()  { printf "[INFO]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+# ------------------------------------------------------------------------------
+# 1. Volume Management (PipeWire -> PulseAudio -> ALSA)
+# ------------------------------------------------------------------------------
+adjust_volume() {
+    local action="$1" # up | down | mute | <percent>
+    local step=5
+
+    if command -v wpctl >/dev/null 2>&1; then
+        case "$action" in
+            up)   wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ "${step}%+" ;;
+            down) wpctl set-volume @DEFAULT_AUDIO_SINK@ "${step}%-" ;;
+            mute) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;;
+            *)    wpctl set-volume @DEFAULT_AUDIO_SINK@ "$(( action / 100 ))" ;;
+        esac
+    elif command -v pactl >/dev/null 2>&1; then
+        case "$action" in
+            up)   pactl set-sink-volume @DEFAULT_SINK@ "+${step}%" ;;
+            down) pactl set-sink-volume @DEFAULT_SINK@ "-${step}%" ;;
+            mute) pactl set-sink-mute @DEFAULT_SINK@ toggle ;;
+            *)    pactl set-sink-volume @DEFAULT_SINK@ "${action}%" ;;
+        esac
+    elif command -v amixer >/dev/null 2>&1; then
+        case "$action" in
+            up)   amixer -q sset Master "${step}%+" ;;
+            down) amixer -q sset Master "${step}%-" ;;
+            mute) amixer -q sset Master toggle ;;
+            *)    amixer -q sset Master "${action}%" ;;
+        esac
+    else
+        log_error "No audio control subsystem (wpctl, pactl, amixer) available."
+        return 1
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 2. Sound Server Lifecycle & Self-Healing
+# ------------------------------------------------------------------------------
+restart_sound_stack() {
+    log_info "Restarting sound system..."
+    if command -v systemctl >/dev/null 2>&1 && systemctl --user list-units >/dev/null 2>&1; then
+        systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || \
+        systemctl --user restart pulseaudio 2>/dev/null || true
+    else
+        pkill -9 pipewire-pulse || true
+        pkill -9 pipewire || true
+        pkill -9 wireplumber || true
+        pkill -9 pulseaudio || true
+        sleep 1
+        if command -v pipewire >/dev/null 2>&1; then
+            pipewire & disown
+            pipewire-pulse & disown
+            wireplumber & disown
+        elif command -v pulseaudio >/dev/null 2>&1; then
+            pulseaudio -D || pulseaudio & disown
+        fi
+    fi
+    log_info "Sound stack restarted."
+}
+
+# ------------------------------------------------------------------------------
+# 3. Speech Synthesis (Edge TTS)
+# ------------------------------------------------------------------------------
+synthesize_speech() {
+    local text="${1:-}"
+    local outfile="${2:-}"
+    local voice="${VOICE_NAME:-en-US-JennyNeural}"
+
+    if [[ -z "$text" ]]; then
+        text=$(cat -)
+    fi
+
+    if [[ -z "$outfile" ]]; then
+        if command -v edge-playback >/dev/null 2>&1; then
+            edge-playback --voice "$voice" -t "$text"
+        else
+            local tmp_wav
+            tmp_wav=$(mktemp /tmp/tts_XXXXXX.mp3)
+            edge-tts --voice "$voice" --text "$text" --write-media "$tmp_wav"
+            mpv --no-video "$tmp_wav"
+            rm -f "$tmp_wav"
+        fi
+    else
+        edge-tts --voice "$voice" --text "$text" --write-media "$outfile"
+        printf "Saved audio to: %s\n" "$outfile"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 4. Audio Voice Recording (Cross-Platform / Termux-Aware)
+# ------------------------------------------------------------------------------
+record_voice() {
+    local out_dir="${HOME}/Recordings/Voice"
+    mkdir -p "$out_dir"
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
+
+    if [[ $IS_TERMUX -eq 1 ]]; then
+        local lock="$HOME/termux_mic.lock"
+        [[ -d "$lock" ]] && { log_error "Recording session already running."; return 1; }
+        mkdir -p "$lock"
+        local file="${out_dir}/${timestamp}.opus"
+        trap 'termux-microphone-record -q; rm -rf "$lock"; log_info "Recording stopped."' EXIT INT TERM
+        termux-microphone-record -l 0 -e opus -r 48000 -b 64000 -f "$file"
+        printf "Recording voice to %s. Press [Ctrl+C] to stop.\n" "$file"
+        tail -f /dev/null
+    else
+        local file="${out_dir}/${timestamp}.flac"
+        printf "Recording voice to %s. Press [Ctrl+C] to stop.\n" "$file"
+        if command -v ffmpeg >/dev/null 2>&1; then
+            ffmpeg -y -loglevel warning -f pulse -i default -c:a flac "$file"
+        elif command -v arecord >/dev/null 2>&1; then
+            arecord -f cd -t wav "$file.wav"
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 5. CLI Handling
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Audio Controls, Voice Synthesis & Recording CLI
+
+Usage:
+  $PROG_NAME <command> [arguments]
+
+Commands:
+  vol     <up|down|mute|0-100>    Adjust output volume
+  restart                         Restart PipeWire/PulseAudio server
+  tts     [text] [out_file]       Generate/play speech (reads stdin if no text)
+  rec                             Record voice memo (Desktop / Termux)
+
+Examples:
+  $PROG_NAME vol up
+  $PROG_NAME vol 45
+  $PROG_NAME tts "Task completed successfully"
+  echo "Long text" | $PROG_NAME tts
+EOF
+    exit 0
+}
+
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        vol|volume)
+            [[ -z "${1:-}" ]] && { show_help; exit 1; }
+            adjust_volume "$1"
+            ;;
+        restart)
+            restart_sound_stack
+            ;;
+        tts)
+            synthesize_speech "$@"
+            ;;
+        rec|record)
+            record_voice
+            ;;
+        *)
+            show_help
+            ;;
+    esac
+}
+
+main "$@"
+

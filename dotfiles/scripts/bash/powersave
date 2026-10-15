@@ -1,0 +1,189 @@
+#!/bin/bash
+set +e
+
+# -----------------------------
+# CPU Settings
+# -----------------------------
+#pstate_dir=/sys/devices/system/cpu/intel_pstate 
+
+# Enable hardware handled pstate
+#echo active > $pstate_dir/status
+#echo passive > $pstate_dir/status
+
+# In GHz
+min_freq="0.4"
+max_freq="2.3"
+# cpuinfo, don't edit
+cpumax_freq="2.3"
+
+min_freq=$(echo "${min_freq} * 1000 * 1000 / 1" | bc)
+max_freq=$(echo "${max_freq} * 1000 * 1000 / 1" | bc)
+cpumax_freq=$(echo "${cpumax_freq} * 1000 * 1000 / 1" | bc)
+
+for cpu in /sys/devices/system/cpu/cpufreq/policy{0..3}; do
+  echo powersave > $cpu/scaling_governor
+  echo $min_freq > $cpu/scaling_min_freq
+  echo $max_freq > $cpu/scaling_max_freq
+  echo 0 > $cpu/boost
+done
+
+echo 0 | tee /sys/devices/system/cpu/cpufreq/boost
+
+# Pstate perf control
+# 17% = 0.4GHz (lowest valid percentage)
+# 100% = 2.4GHz (highest valid percentage) (current)
+#perf_pct_min=$(echo "scale=2; $min_freq / $cpumax_freq * 100" | bc)  
+#perf_pct_max=$(echo "scale=2; $max_freq / $cpumax_freq * 100" | bc)  
+#echo $perf_pct_min > $pstate_dir/min_perf_pct
+#echo $perf_pct_max > $pstate_dir/max_perf_pct
+
+for i in $(find -P /sys/devices/system/cpu/ -wholename '*/power/energy_perf_bias'); do
+# Set 15 to conserve more energy (0 for max performance)
+  echo 15 > "$i"
+done
+
+#for p in $pstate_dir/*; do
+#    echo 1 > $p/no_turbo
+#    echo 0 > $p/hwp_dynamic_boost
+#done
+
+# Disable high interrupts from acpi
+for i in $(find -P /sys/firmware/acpi/interrupts/); do
+  if [[ $(awk '{print $1}' $i) -gt 1000 ]]; then
+    echo disable > $i
+  fi
+done
+
+
+# -----------------------------
+# Wireless / Bluetooth
+# -----------------------------
+iw dev wlan0 set power_save on 
+#rfkill block all 
+#pkill -9 wpa_supplicant
+#rmmod iwlmvm
+#rmmod iwlwifi
+
+# -----------------------------
+# Audio
+# -----------------------------
+# Force Intel Audio to sleep after 1 second of silence
+echo 1 > /sys/module/snd_hda_intel/parameters/power_save
+echo Y > /sys/module/snd_hda_intel/parameters/power_save_controller
+
+# -----------------------------
+# Wake-on-LAN disable
+# -----------------------------
+for net in $(find -P /sys/class/net/ -wholename '*power/wakeup'); do
+    echo disabled > $net
+done
+
+# -----------------------------
+# Battery thresholds (ThinkPad)
+# -----------------------------
+echo 75 > /sys/class/power_supply/BAT0/charge_control_start_threshold
+echo 80 > /sys/class/power_supply/BAT0/charge_control_end_threshold
+echo auto > /sys/class/power_supply/BAT0/charge_behaviour
+
+# -----------------------------
+# Memory / VM
+# -----------------------------
+sysctl -w vm.dirty_ratio=5
+sysctl -w vm.dirty_background_ratio=2 
+sysctl -w vm.vfs_cache_pressure=200
+sysctl -w vm.dirty_writeback_centisecs=1500
+
+# -----------------------------
+# Fan / Thermal
+# -----------------------------
+echo auto > /proc/acpi/ibm/fan
+
+# -----------------------------
+# USB / Disk / SATA / AHCI / PCIe autosuspend
+# -----------------------------
+# Power management/autosuspend all devices (eg: usb, pci etc)
+for i in $(find /sys/devices/ /sys/bus/ -wholename '*/power/control'); do
+  echo auto > "$i"
+done
+
+for i in $(find /sys/devices/ /sys/bus/ -wholename '*/power/wakeup'); do
+  echo auto > "$i"
+done
+
+for i in $(find /sys/devices/ /sys/bus/ -wholename '*/autosuspend_delay_ms'); do
+    echo 1 > "$i" # in millisecond
+done                             
+
+#for i in $(find /sys/devices/ /sys/bus/ -wholename '*/link_power_management_policy'); do
+  #echo min_power > "$i"
+  #echo max_performance > "$i"
+#  echo med_power_with_dipm > "$i"
+#done                  
+
+#for i in $(find /sys/devices/ /sys/bus/ -wholename '*/apm_level'); do
+#   echo 128 > "$i"
+ # echo 245 > "$i"
+#done                             
+
+# btrfs kworkers
+echo 1 > /sys/devices/virtual/workqueue/cpumask
+
+
+echo powersupersave > /sys/module/pcie_aspm/parameters/policy
+#echo performance > /sys/module/pcie_aspm/parameters/policy
+
+# Enable power management for hdd
+# dmesg spammed with aggressive on off cycles for ssd if PM on
+for disk in /sys/block/*; do
+   echo mq-deadline > $disk/queue/scheduler
+   #echo bfq > $disk/queue/scheduler
+   echo on > $disk/device/power/control # on = PM off, auto = PM on
+#   echo 1 > $disk/device/timeout
+done
+
+# Disable certain controllers
+pci=(
+"0000:00:1f.6" # ethernet
+"0000:00:14.0" # usb hub (may include touchscreen)
+#"0000:02:00.0" # card reader
+"0000:00:13.0" # sensors (may include touchscreen)
+"0000:00:14.2" # thermal
+)
+
+for i in "${pci[@]}"; do 
+    echo "$i" > /sys/bus/pci/devices/"$i"/driver/unbind
+    echo auto > /sys/bus/pci/devices/"$i"/power/control
+done
+
+
+# For usb devices, but if entire controller is disabled
+# then it will throw a path not found error
+# just ignore it
+c=0
+for i in /sys/bus/usb/devices/*; do
+    if [[ $(cat "$i/idVendor") == "$c" ]] && [[ $(cat "$i/idProduct" == "$i/idProduct") ]]
+    then
+        echo $i > driver/unbind
+        echo auto > $i/power/control
+        c=$((c+1))
+    fi
+done
+
+# -----------------------------
+# Intel GPU
+# -----------------------------
+for i in /sys/devices/*/*/drm/card0/*; do
+    echo 300 > $i/gt_min_freq_mhz
+    echo 300 > $i/gt_max_freq_mhz 
+    echo 300 > $i/gt_boost_freq_mhz
+done
+
+# Disable wakeup sources
+IFS=$'\n'
+for i in $(grep 'enabled' /proc/acpi/wakeup | awk '{print $1}'); do
+  echo $i > /proc/acpi/wakeup
+done
+
+# Allow deep cstate
+lsof /dev/cpu_dma_latency | awk '{print $2}' | sed '/PID/d' | xargs kill -9
+setsid sh -c '/home/void/.bin/deep_cstate_hack' & disown

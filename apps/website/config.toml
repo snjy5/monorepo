@@ -1,0 +1,71 @@
+base_url = "https://thecatvoid.online"
+title = "Sanjay MV - Linux Systems Administrator & Engineer"
+compile_sass = false
+build_search_index = false
+
+[extra]
+name = "Sanjay MV"
+headline = "Linux Systems Administrator & Infrastructure Engineer"
+location = "Kannur, Kerala, 670594, India"
+phone = "(+91) 8921180547"
+email = "sanjay.mv.official@gmail.com"
+linkedin = "https://www.linkedin.com/in/sanjay-mv-5b4946319"
+github = "https://github.com/snjy5"
+website = "https://thecatvoid.online"
+github_username = "snjy5"
+summary = "Self-taught Systems Administrator and Linux Specialist with over 7 years of hands-on experience engineering, automating, and securing home labs, cloud nodes, and self-hosted infrastructure. Operating primarily in headless GNU/Linux environments, I thrive on troubleshooting complex systems using native command-line utilities rather than GUI abstractions. Adept at low-level kernel compilation, deployment pipelines, and bare-metal recovery. Seeking a collaborative engineering role to apply my deep technical self-reliance, adaptability, and passion for open-source technologies."
+
+skills = [
+  { category = "Operating Systems", items = "Proxmox, Fedora, Ubuntu, Debian, Arch, Gentoo, NixOS, RHEL, Void Linux" },
+  { category = "Languages & Scripting", items = "Bash, POSIX sh, Python, Java, PHP, HTML" },
+  { category = "Virtualization & Cloud", items = "Hetzner VPS, AWS, Docker, virt-manager, QEMU/KVM, VirtualBox" },
+  { category = "Automation & CI/CD", items = "Ansible, Terraform, GitHub Actions, GitLab CI, Cirrus CI" },
+  { category = "Networking & Security", items = "DNS, DHCP, HTTP servers, VPNs, Firewalls (ufw/iptables/firewalld), Network Routing, TCP/IP, Disk Encryption, Linux Hardening" },
+  { category = "Storage & Databases", items = "MySQL, SQLite, Partitioning, ZFS software RAID, LVM, Automated Backup Pipelines" },
+  { category = "Systems Engineering & Recovery", items = "Linux Kernel Compilation/Configuration, Makefiles/Build Systems, GRUB/bootloader/initramfs rescue, ext4 sleuthkit, btrfs rescue, testdisk, inode/file system repair" },
+  { category = "User-Space & Desktop Linux", items = "X11/Wayland, DBus, systemd user sessions, Dotfiles management, Application dependency resolution, GUI workflow automation" },
+  { category = "Text & Config Management", items = "Vim, Nano, Sed, Awk, Regex" }
+]
+
+[[extra.experience]]
+title = "Independent Linux Systems Engineer"
+company = "Self-Directed Home Labs & Community Projects"
+period = "Jan 2018 – Present"
+location = "Kerala, India (Remote)"
+points = [
+  "Home Lab & Cloud IaC: Provisioned secure, fault-tolerant Linux servers on AWS and Hetzner for personal hosting using Ansible and Terraform (HCL), integrating CI/CD pipelines with dry-run emulation.",
+  "Low-Level OS & Kernel Engineering: Engineered custom init systems from scratch to minimize OS footprints. Automated custom Linux/Android kernel compilation and Gentoo binary builds via GitHub Actions.",
+  "System Automation & Bare-Metal Recovery: Executed solo bare-metal rescue operations on headless servers, including GRUB/initramfs troubleshooting and ext4/btrfs file system repair using sleuthkit and testdisk.",
+  "Storage & Network Security: Managed ZFS software RAID and LVM for personal servers with automated backup pipelines. Configured DNS, DHCP, and VPNs behind hardened ufw/iptables firewalls with full disk encryption.",
+  "Mobile Systems & Community Support: Developed AOSP custom device configurations from scratch and collaborated with the open-source community to build and troubleshoot custom Android ROMs.",
+  "Software Development: Built a Java-based universal code runner and IDE application leveraging a mobile GNU/Linux environment (Termux), showcased at the Tharang National Technical Fest."
+]
+
+[[extra.experience]]
+title = "Technical Infrastructure Contractor"
+company = "Kerala Development and Innovation Strategic Council"
+period = "Jan 2026 – June 2026"
+location = "Kannur, Kerala, India (On-site)"
+points = [
+  "Deployed and managed critical technical infrastructure—including networking, power redundancy, and conferencing systems—for large-scale regional job fairs.",
+  "Maintained comprehensive IT asset logs across multiple host facilities, tracking network addresses, hardware transfers, and device lifecycles to ensure zero downtime during events."
+]
+
+[[extra.experience]]
+title = "Full Stack Intern"
+company = "Thathwaa Communications Pvt. Ltd."
+period = "Apr 2024 – May 2024"
+location = "Kannur, Kerala, India (On-site)"
+points = [
+  "Configured Laravel environments, implementing backend routing, MVC architecture, and server-side logic using PHP for a functional school management platform.",
+  "Collaborated with a team of interns to build, test, and deploy the full-stack web application, bridging backend logic with frontend interfaces."
+]
+
+[[extra.education]]
+degree = "Diploma of Education, Computer Maintenance & Hardware Engineering"
+institution = "EKNMM Kalliassery Polytechnic"
+period = "Sep 2022 – May 2025"
+points = [
+  "Systems & Routing: Configured and administered Windows Server and Linux environments; managed physical network routing utilizing Cisco IOS CLI.",
+  "Hardware Diagnostics: Executed bare-metal computer assembly, system diagnostics, and component-level hardware troubleshooting and replacement."
+]

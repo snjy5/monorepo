@@ -1,0 +1,53 @@
+#!/usr/bin/bash
+lock=/tmp/amixer_volume_lock
+[[ -f $lock ]] && exit 1
+touch $lock
+trap "/usr/bin/rm -f $lock" ERR INT TERM EXIT
+
+__alsa_vol(){
+level=$(amixer sget Master | grep -o '[0-9]*%' | head -1 | sed 's/\%//g')
+
+if [[ "$1" == "--minus" ]]; then
+  level=$((level - 5))
+else
+  level=$((level + 5))
+fi
+
+if (( level < 0 )); then level=0; fi
+if (( level > 150 )); then level=100; fi
+
+for i in 'Master' 'Headphone' 'Speaker' 'PCM' 'Digital' 'Internal Mic Boost' 'Mic Boost' 'Beep' 'Capture'
+do
+  amixer sset "$i" ${level}% 2>&1 > /dev/null
+done
+}
+
+__pactl_vol(){
+# Static volume for everything else than output device
+# preventing clipping or distortion
+# Only increment or decrement output device hardware volume
+if [[ "$1" == "--minus" ]]; then
+  level="-5%"
+else
+  level="+5%"
+fi
+
+for sink in $(pactl list short sinks | awk '{print $2}'); do
+  pactl set-sink-volume "$sink" "$level"
+done
+
+for source in $(pactl list short sources | awk '{print $2}'); do
+  pactl set-source-volume "$source" "$level"
+done
+
+for input in $(pactl list short sink-inputs | awk '{print $1}'); do
+  pactl set-sink-input-volume "$input" "$level"
+done
+
+for output in $(pactl list short source-outputs | awk '{print $1}'); do
+  pactl set-source-output-volume "$output" "$level"
+done
+}
+
+#__pactl_vol "$1"
+__alsa_vol "$1"

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+HOME="/tmp"
+exec firefox-bin --new-window --private-window --disable-pinch

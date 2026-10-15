@@ -1,0 +1,26 @@
+#!/bin/bash
+ip=$(ip route | head -n 1 | awk '{print $3}')
+port=6666
+
+if [[ $# -eq 0 ]]; then
+    prog=$(basename $0)
+    echo "Usage: $prog <options> <path1> <path2>"
+    echo "$prog <phone> <pc>"
+    echo "$prog --reverse <pc> <phone>"
+    echo 'Copy files between router and client'
+    echo 
+    exit
+fi
+
+if [[ "$1" == "--reverse" ]]; then
+    shift # negate --reverse taking up argc
+    router="root@$ip:$2"
+    host="$1"
+    # pc to phone
+    scp -P $port -r "$host" "$router"
+else
+    router="root@$ip:$1"
+    host="$2"
+    # phone to pc
+    scp -P $port -r "$router" "$host"
+fi

@@ -1,0 +1,16 @@
+#!/bin/sh
+# Kills PID and all descendants, children first, then parent.
+self=$$
+ppid=$PPID
+pid=$1
+sig="KILL"
+
+# Get the process tree, extract PIDs
+pids="$(pstree -p "$pid" | grep -o '([0-9]\+)' | tr -d '()' | sort -n | tac)"
+pids="$(echo "$pids" | sed -e "s/$self//g" -e "s/$ppid//g")"
+
+# Kill in order
+for p in $pids; do
+  kill "-$sig" "$p"
+  sleep 0.1
+done

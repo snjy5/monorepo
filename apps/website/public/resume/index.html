@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sanjay MV - Linux Systems Administrator &amp; Engineer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --accent: #1a4d8f;
+      --accent-dark: #0d3766;
+      --ink: #1c1c1c;
+      --muted: #5b5b5b;
+      --hairline: #d8d8d8;
+      --paper: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.55;
+      color: var(--ink);
+      background: #f4f4f2;
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 3rem 1.5rem 4rem;
+    }
+
+    @media (min-width: 700px) {
+      body { padding: 3.5rem 2.5rem 4rem; background: #f4f4f2; }
+    }
+
+    /* Card look on screen, flat on print */
+    .sheet {
+      background: var(--paper);
+      padding: 2.75rem 3rem;
+      border-radius: 4px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.06);
+    }
+
+    header {
+      text-align: center;
+      border-bottom: 3px solid var(--accent);
+      padding-bottom: 1.1rem;
+      margin-bottom: 1.6rem;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: "Source Serif 4", Georgia, serif;
+      font-weight: 700;
+      font-size: 2.4rem;
+      letter-spacing: 0.01em;
+      color: var(--ink);
+    }
+
+    .subtitle {
+      font-size: 1.05rem;
+      color: var(--accent);
+      margin-top: 0.35rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      font-size: 0.85rem;
+    }
+
+    .contact-bar {
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 0.4rem 0.7rem;
+    }
+    .contact-bar span.sep { color: var(--hairline); }
+    .contact-bar a { color: var(--accent-dark); text-decoration: none; font-weight: 500; }
+    .contact-bar a:hover { text-decoration: underline; }
+
+    h2 {
+      font-family: "Inter", sans-serif;
+      border-bottom: 1px solid var(--hairline);
+      padding-bottom: 0.3rem;
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent-dark);
+      margin-top: 2rem;
+      margin-bottom: 0.9rem;
+    }
+
+    section:first-of-type h2 { margin-top: 0; }
+
+    .summary {
+      font-size: 0.98rem;
+      color: #333;
+    }
+
+    .entry { margin-bottom: 1.35rem; }
+    .entry:last-child { margin-bottom: 0; }
+
+    .entry-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      flex-wrap: wrap;
+      gap: 0.2rem 1rem;
+    }
+
+    .entry-title { font-weight: 700; font-size: 1rem; color: var(--ink); }
+    .entry-company { color: var(--accent-dark); font-weight: 500; }
+    .entry-sep { color: var(--hairline); margin: 0 0.4rem; }
+
+    .entry-meta {
+      font-size: 0.82rem;
+      color: var(--muted);
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    ul { margin: 0.5rem 0 0 0; padding-left: 1.15rem; }
+    li { margin-bottom: 0.4rem; font-size: 0.93rem; }
+    li::marker { color: var(--accent); }
+
+    .skills-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.5rem 1.5rem;
+      list-style: none;
+      padding-left: 0;
+      margin-top: 0.4rem;
+    }
+    .skills-grid li {
+      list-style: none;
+      padding-left: 0;
+      font-size: 0.92rem;
+      border-bottom: 1px dotted var(--hairline);
+      padding-bottom: 0.35rem;
+    }
+    .skills-grid li strong {
+      color: var(--accent-dark);
+      font-weight: 600;
+    }
+
+    .dim { color: #999; font-size: 0.9em; font-style: italic; }
+
+    #recent-projects li a { color: var(--accent-dark); text-decoration: none; font-weight: 600; }
+    #recent-projects li a:hover { text-decoration: underline; }
+
+    @media print {
+      body { background: #fff; padding: 0; max-width: 100%; color: #000; }
+      .sheet { box-shadow: none; border-radius: 0; padding: 0; }
+      a { color: #000 !important; text-decoration: none; }
+      h2 { color: #000; }
+      .subtitle, .entry-company, li::marker { color: #333; }
+      @page { margin: 1.6cm; }
+    }
+
+    @media (max-width: 480px) {
+      .sheet { padding: 1.6rem 1.4rem; }
+      h1 { font-size: 1.9rem; }
+    }
+  </style>
+</head>
+<body>
+<div class="sheet">
+
+<header>
+  <h1>Sanjay MV</h1>
+  <div class="subtitle">Linux Systems Administrator &amp; Infrastructure Engineer</div>
+  <div class="contact-bar">
+    <span>Kannur, Kerala, 670594, India</span>
+    <span class="sep">•</span>
+    <span>(+91) 8921180547</span>
+    <span class="sep">•</span>
+    <a href="mailto:sanjay.mv.official@gmail.com">sanjay.mv.official@gmail.com</a>
+    <span class="sep">•</span>
+    <a href="https:&#x2F;&#x2F;www.linkedin.com&#x2F;in&#x2F;sanjay-mv-5b4946319">https:&#x2F;&#x2F;www.linkedin.com&#x2F;in&#x2F;sanjay-mv-5b4946319</a>
+    <span class="sep">•</span>
+    <a href="https:&#x2F;&#x2F;github.com&#x2F;snjy5">https:&#x2F;&#x2F;github.com&#x2F;snjy5</a>
+    <span class="sep">•</span>
+    <a href="https:&#x2F;&#x2F;thecatvoid.online">https:&#x2F;&#x2F;thecatvoid.online</a>
+  </div>
+</header>
+
+<section>
+  <h2>Professional Summary</h2>
+  <p class="summary">Self-taught Systems Administrator and Linux Specialist with over 7 years of hands-on experience engineering, automating, and securing home labs, cloud nodes, and self-hosted infrastructure. Operating primarily in headless GNU&#x2F;Linux environments, I thrive on troubleshooting complex systems using native command-line utilities rather than GUI abstractions. Adept at low-level kernel compilation, deployment pipelines, and bare-metal recovery. Seeking a collaborative engineering role to apply my deep technical self-reliance, adaptability, and passion for open-source technologies.</p>
+</section>
+
+<section>
+  <h2>Technical Skills</h2>
+  <ul class="skills-grid">
+    
+      <li><strong>Operating Systems:</strong> Proxmox, Fedora, Ubuntu, Debian, Arch, Gentoo, NixOS, RHEL, Void Linux</li>
+    
+      <li><strong>Languages &amp; Scripting:</strong> Bash, POSIX sh, Python, Java, PHP, HTML</li>
+    
+      <li><strong>Virtualization &amp; Cloud:</strong> Hetzner VPS, AWS, Docker, virt-manager, QEMU&#x2F;KVM, VirtualBox</li>
+    
+      <li><strong>Automation &amp; CI&#x2F;CD:</strong> Ansible, Terraform, GitHub Actions, GitLab CI, Cirrus CI</li>
+    
+      <li><strong>Networking &amp; Security:</strong> DNS, DHCP, HTTP servers, VPNs, Firewalls (ufw&#x2F;iptables&#x2F;firewalld), Network Routing, TCP&#x2F;IP, Disk Encryption, Linux Hardening</li>
+    
+      <li><strong>Storage &amp; Databases:</strong> MySQL, SQLite, Partitioning, ZFS software RAID, LVM, Automated Backup Pipelines</li>
+    
+      <li><strong>Systems Engineering &amp; Recovery:</strong> Linux Kernel Compilation&#x2F;Configuration, Makefiles&#x2F;Build Systems, GRUB&#x2F;bootloader&#x2F;initramfs rescue, ext4 sleuthkit, btrfs rescue, testdisk, inode&#x2F;file system repair</li>
+    
+      <li><strong>User-Space &amp; Desktop Linux:</strong> X11&#x2F;Wayland, DBus, systemd user sessions, Dotfiles management, Application dependency resolution, GUI workflow automation</li>
+    
+      <li><strong>Text &amp; Config Management:</strong> Vim, Nano, Sed, Awk, Regex</li>
+    
+  </ul>
+</section>
+
+<section>
+  <h2>Recent Projects</h2>
+  <ul id="recent-projects">
+    <li class="dim">Fetching recent repositories from GitHub...</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Professional Experience</h2>
+  
+    <div class="entry">
+      <div class="entry-header">
+        <div>
+          <span class="entry-title">Independent Linux Systems Engineer</span><span class="entry-sep">|</span><span class="entry-company">Self-Directed Home Labs &amp; Community Projects</span>
+        </div>
+        <div class="entry-meta">Jan 2018 – Present &middot; Kerala, India (Remote)</div>
+      </div>
+      <ul>
+        
+          <li>Home Lab &amp; Cloud IaC: Provisioned secure, fault-tolerant Linux servers on AWS and Hetzner for personal hosting using Ansible and Terraform (HCL), integrating CI&#x2F;CD pipelines with dry-run emulation.</li>
+        
+          <li>Low-Level OS &amp; Kernel Engineering: Engineered custom init systems from scratch to minimize OS footprints. Automated custom Linux&#x2F;Android kernel compilation and Gentoo binary builds via GitHub Actions.</li>
+        
+          <li>System Automation &amp; Bare-Metal Recovery: Executed solo bare-metal rescue operations on headless servers, including GRUB&#x2F;initramfs troubleshooting and ext4&#x2F;btrfs file system repair using sleuthkit and testdisk.</li>
+        
+          <li>Storage &amp; Network Security: Managed ZFS software RAID and LVM for personal servers with automated backup pipelines. Configured DNS, DHCP, and VPNs behind hardened ufw&#x2F;iptables firewalls with full disk encryption.</li>
+        
+          <li>Mobile Systems &amp; Community Support: Developed AOSP custom device configurations from scratch and collaborated with the open-source community to build and troubleshoot custom Android ROMs.</li>
+        
+          <li>Software Development: Built a Java-based universal code runner and IDE application leveraging a mobile GNU&#x2F;Linux environment (Termux), showcased at the Tharang National Technical Fest.</li>
+        
+      </ul>
+    </div>
+  
+    <div class="entry">
+      <div class="entry-header">
+        <div>
+          <span class="entry-title">Technical Infrastructure Contractor</span><span class="entry-sep">|</span><span class="entry-company">Kerala Development and Innovation Strategic Council</span>
+        </div>
+        <div class="entry-meta">Jan 2026 – June 2026 &middot; Kannur, Kerala, India (On-site)</div>
+      </div>
+      <ul>
+        
+          <li>Deployed and managed critical technical infrastructure—including networking, power redundancy, and conferencing systems—for large-scale regional job fairs.</li>
+        
+          <li>Maintained comprehensive IT asset logs across multiple host facilities, tracking network addresses, hardware transfers, and device lifecycles to ensure zero downtime during events.</li>
+        
+      </ul>
+    </div>
+  
+    <div class="entry">
+      <div class="entry-header">
+        <div>
+          <span class="entry-title">Full Stack Intern</span><span class="entry-sep">|</span><span class="entry-company">Thathwaa Communications Pvt. Ltd.</span>
+        </div>
+        <div class="entry-meta">Apr 2024 – May 2024 &middot; Kannur, Kerala, India (On-site)</div>
+      </div>
+      <ul>
+        
+          <li>Configured Laravel environments, implementing backend routing, MVC architecture, and server-side logic using PHP for a functional school management platform.</li>
+        
+          <li>Collaborated with a team of interns to build, test, and deploy the full-stack web application, bridging backend logic with frontend interfaces.</li>
+        
+      </ul>
+    </div>
+  
+</section>
+
+<section>
+  <h2>Education</h2>
+  
+    <div class="entry">
+      <div class="entry-header">
+        <div>
+          <span class="entry-title">Diploma of Education, Computer Maintenance &amp; Hardware Engineering</span><span class="entry-sep">|</span><span class="entry-company">EKNMM Kalliassery Polytechnic</span>
+        </div>
+        <div class="entry-meta">Sep 2022 – May 2025</div>
+      </div>
+      <ul>
+        
+          <li>Systems &amp; Routing: Configured and administered Windows Server and Linux environments; managed physical network routing utilizing Cisco IOS CLI.</li>
+        
+          <li>Hardware Diagnostics: Executed bare-metal computer assembly, system diagnostics, and component-level hardware troubleshooting and replacement.</li>
+        
+      </ul>
+    </div>
+  
+</section>
+
+</div>
+
+<script>
+  (function() {
+    const user = "snjy5";
+    const container = document.getElementById('recent-projects');
+
+    fetch(`https://api.github.com/users/${user}/repos?sort=pushed&per_page=30`)
+      .then(res => res.json())
+      .then(repos => {
+        if (!Array.isArray(repos) || repos.length === 0) {
+          container.innerHTML = '<li class="dim">No public repositories found.</li>';
+          return;
+        }
+        const items = repos
+          .filter(repo => !repo.fork)
+          .slice(0, 10)
+          .map(repo => `
+            <li>
+              <a href="${repo.html_url}" target="_blank" rel="noopener">${repo.name}</a>
+              ${repo.language ? `<span class="dim">(${repo.language})</span>` : ''}
+              &mdash; ${repo.description || 'No description provided.'}
+            </li>
+          `).join('');
+        container.innerHTML = items || '<li class="dim">No original repositories found.</li>';
+      })
+      .catch(() => {
+        container.innerHTML = '<li class="dim">Unable to connect to GitHub API.</li>';
+      });
+  })();
+</script>
+
+</body>
+</html>

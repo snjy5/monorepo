@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+import sqlite3
+import datetime
+from pathlib import Path
+import sys
+
+DB_PATH = Path.home() / "habit_log.db"
+TODAY = datetime.date.today().isoformat()
+START_DATE = "2025-10-19"
+
+
+def init_db():
+    """Create the table if it doesn’t exist."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS habit_log (
+                log_date TEXT,
+                habit TEXT,
+                hours REAL DEFAULT 0,
+                notes TEXT DEFAULT ''
+            )
+        """)
+
+
+def parse_time(value: str) -> datetime.time:
+    """Parse simple HH:MM time, ignoring AM/PM."""
+    try:
+        return datetime.datetime.strptime(value.strip(), "%H:%M").time()
+    except ValueError:
+        print("Invalid time format. Use HH:MM.")
+        sys.exit(1)
+
+
+def log_entry():
+    print("\n--- Log New Habit ---")
+    habit = input("Habit: ").strip()
+    start_str = input("Start time (HH:MM): ").strip()
+    end_str = input("End time (HH:MM): ").strip()
+    notes = input("Notes: ").strip()
+
+    start_time = parse_time(start_str)
+    end_time = parse_time(end_str)
+
+    today = datetime.date.today()
+    start_dt = datetime.datetime.combine(today, start_time)
+    end_dt = datetime.datetime.combine(today, end_time)
+
+    # Handle transitions like 11 PM → 1 AM (crossing midnight)
+    if end_dt < start_dt:
+        end_dt += datetime.timedelta(days=1)
+
+    duration = (end_dt - start_dt).total_seconds() / 3600  # hours
+
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("""
+            INSERT INTO habit_log (log_date, habit, hours, notes)
+            VALUES (?, ?, ?, ?)
+        """, (TODAY, habit, duration, notes))
+
+    print(f"+1 pt. Logged: {habit} — {duration:.2f} hours")
+
+
+def fetch_entries(date=None):
+    """Fetch entries from the database (today or all)."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.cursor()
+        if date:
+            cur.execute("""
+                SELECT habit, hours, notes
+                FROM habit_log
+                WHERE log_date = ?
+                ORDER BY rowid
+            """, (date,))
+        else:
+            cur.execute("""
+                SELECT log_date, habit, hours, notes
+                FROM habit_log
+                WHERE log_date >= ?
+                ORDER BY log_date, rowid
+            """, (START_DATE,))
+        return cur.fetchall()
+
+
+def display_today():
+    """Display today’s log with totals and score."""
+    rows = fetch_entries(TODAY)
+    print(f"\n Log for {TODAY}:")
+    print(f"{'Habit':<20} {'Hours':>10} {'Score':>15} {'Notes':>20}")
+    print("-" * 70)
+
+    if not rows:
+        print("No entries yet.")
+        return
+
+    total_hours = 0.0
+    total_score = 0
+
+    for habit, hours, notes in rows:
+        total_hours += hours
+        total_score += 1
+        score = 1  # Display per-entry score
+        print(f"{habit:<20} {hours:>10.1f} {score:>15} {notes:>20}")
+
+    print("-" * 70)
+    print(f"{'Total Hours:':<20} {total_hours:>10.1f}")
+    print(f"{'Total Score:':<20} {total_score:>10d}")
+    print("-" * 70)
+
+
+def display_all():
+    """Display full log grouped by date with daily totals and scores."""
+    rows = fetch_entries()
+    if not rows:
+        print(f"No entries found since {START_DATE}.")
+        return
+
+    print(f"\n Full Habit Log from {START_DATE}:")
+    current_date = None
+    daily_hours = 0.0
+    daily_score = 0
+
+    for log_date, habit, hours, notes in rows:
+        if log_date != current_date:
+            if current_date is not None:
+                print(f"{'':<20} {daily_hours:>10.1f}h  {f'{daily_score} pts':>15}")
+                print("-" * 70)
+            current_date = log_date
+            print(f"\n{log_date}:")
+            print(f"{'Habit':<20} {'Hours':>10} {'Notes':>20}")
+            print("-" * 70)
+            daily_hours = 0.0
+            daily_score = 0
+
+        print(f"{habit:<20} {hours:>10.1f} {notes:>20}")
+        daily_hours += hours
+        daily_score += 1
+
+    # Print totals for the last date
+    print(f"{'':<20} {daily_hours:>10.1f}h  {f'{daily_score} pts':>15}")
+    print("-" * 70)
+
+
+def main():
+    """Main CLI logic."""
+    init_db()
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--all":
+        display_all()
+    else:
+        display_today()
+        log_entry()
+        display_today()
+
+
+if __name__ == "__main__":
+    main()

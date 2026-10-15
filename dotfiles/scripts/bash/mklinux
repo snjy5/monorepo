@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# -----------------------------------------------------------------------------
+# Configuration & Auto-Detection
+# -----------------------------------------------------------------------------
+ARCH="${ARCH:-x86_64}"
+JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
+BOOT_DIR="/boot"
+
+# Check if current directory is a Linux kernel source tree
+if [[ ! -f "Makefile" ]] || ! grep -q '^VERSION =' Makefile 2>/dev/null; then
+    printf "Error: Run this script from the root of a Linux kernel source tree.\n" >&2
+    exit 1
+fi
+
+# Detect kernel version from Makefile and .config (with localversion)
+get_kernel_release() {
+    if [[ -f ".config" ]]; then
+        make -s kernelrelease 2>/dev/null || true
+    fi
+}
+
+KERNEL_RELEASE="$(get_kernel_release)"
+BZIMAGE="arch/x86/boot/bzImage"
+DEFCONFIG_TARGET="${DEFCONFIG_TARGET:-x86_64_defconfig}"
+
+# Compiler setup (GCC by default, optional LLVM/Clang)
+USE_CLANG="${USE_CLANG:-0}"
+
+setup_compiler() {
+    if (( USE_CLANG == 1 )); then
+        export CC="clang"
+        export HOSTCC="clang"
+        export LLVM=1
+        export LLVM_IAS=1
+    elif command -v ccache >/dev/null 2>&1; then
+        export CC="ccache gcc"
+        export HOSTCC="ccache gcc"
+    fi
+}
+
+kmake() {
+    setup_compiler
+    make -j"${JOBS}" "$@"
+}
+
+# -----------------------------------------------------------------------------
+# Core Tasks
+# -----------------------------------------------------------------------------
+build() {
+    printf "==> Building kernel bzImage and modules with %s jobs...\n" "${JOBS}"
+    kmake bzImage modules
+}
+
+menuconfig() {
+    kmake menuconfig
+}
+
+savedefconfig() {
+    printf "==> Saving defconfig...\n"
+    kmake savedefconfig
+    local defconfig_path="arch/x86/configs/${DEFCONFIG_TARGET}"
+    if [[ -f "$defconfig_path" ]]; then
+        cp -v "$defconfig_path" "${defconfig_path}.old"
+    fi
+    cp -v defconfig "$defconfig_path"
+    printf "Saved to %s\n" "$defconfig_path"
+}
+
+modules_install() {
+    printf "==> Installing modules...\n"
+    if [[ "$(id -u)" -ne 0 ]]; then
+        sudo make modules_install
+    else
+        make modules_install
+    fi
+}
+
+install_kernel() {
+    local krel
+    krel="$(get_kernel_release)"
+    if [[ -z "$krel" ]]; then
+        printf "Error: Could not determine kernel release string. Build kernel first.\n" >&2
+        exit 1
+    fi
+
+    if [[ ! -f "$BZIMAGE" ]]; then
+        printf "Error: %s not found. Build kernel first.\n" "$BZIMAGE" >&2
+        exit 1
+    fi
+
+    local vmlinuz="${BOOT_DIR}/vmlinuz-${krel}"
+    local initramfs="${BOOT_DIR}/initramfs-${krel}.img"
+
+    printf "==> Installing kernel image to %s\n" "$vmlinuz"
+    if [[ -f "$vmlinuz" ]]; then
+        sudo mv -v "$vmlinuz" "${vmlinuz}.old"
+    fi
+    sudo cp -v "$BZIMAGE" "$vmlinuz"
+
+    # Generate initramfs if dracut or mkinitcpio is present
+    if command -v dracut >/dev/null 2>&1; then
+        printf "==> Generating initramfs with dracut...\n"
+        sudo dracut -f --kver "$krel" "$initramfs"
+    elif command -v mkinitcpio >/dev/null 2>&1; then
+        printf "==> Generating initramfs with mkinitcpio...\n"
+        sudo mkinitcpio -k "$krel" -g "$initramfs"
+    else
+        printf "Warning: Neither dracut nor mkinitcpio found. Skipping initramfs generation.\n" >&2
+    fi
+
+    # Update GRUB if present
+    if command -v grub-mkconfig >/dev/null 2>&1; then
+        printf "==> Updating GRUB config...\n"
+        sudo grub-mkconfig -o /boot/grub/grub.cfg
+    fi
+}
+
+full_install() {
+    build
+    modules_install
+    install_kernel
+}
+
+# -----------------------------------------------------------------------------
+# CLI Dispatcher
+# -----------------------------------------------------------------------------
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS | TASKS]
+
+Tasks:
+  build             Compile bzImage and modules (-j${JOBS})
+  menuconfig        Run interactive kernel configuration
+  savedefconfig     Generate and save clean defconfig
+  modules_install   Install modules to /lib/modules/<version>
+  install           Install bzImage, modules, initramfs, and update GRUB
+  all               Build and install everything
+
+Options:
+  --clang, -c       Use Clang/LLVM toolchain instead of GCC
+  -j <jobs>         Specify compilation threads (default: ${JOBS})
+  --help, -h        Display this help message
+EOF
+    exit 0
+}
+
+if [[ $# -eq 0 ]]; then
+    usage
+fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --help|-h)
+            usage
+            ;;
+        --clang|-c)
+            USE_CLANG=1
+            shift
+            ;;
+        -j)
+            JOBS="$2"
+            shift 2
+            ;;
+        build)
+            build
+            shift
+            ;;
+        menuconfig|-mc)
+            menuconfig
+            shift
+            ;;
+        savedefconfig|-d)
+            savedefconfig
+            shift
+            ;;
+        modules_install|-m)
+            modules_install
+            shift
+            ;;
+        install|-i)
+            install_kernel
+            shift
+            ;;
+        all|-a)
+            full_install
+            shift
+            ;;
+        *)
+            # Allow passing raw make commands (e.g. `mklinux oldconfig`, `mklinux clean`)
+            kmake "$1"
+            shift
+            ;;
+    esac
+done

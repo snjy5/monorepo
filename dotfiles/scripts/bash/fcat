@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+print_file() {
+    local file="$1"
+    
+    # Check if file is a regular readable text file (skip binaries)
+    if file -b --mime "$file" | grep -q 'charset=binary'; then
+        return 1
+    fi
+    
+    echo "================================================================================"
+    echo "FILE: $file"
+    echo "================================================================================"
+    cat "$file"
+    echo -e "\n"
+}
+
+process_files() {
+    local files=("$@")
+    for file in "${files[@]}"; do
+        if [[ -f "$file" ]]; then
+            print_file "$file" || continue
+        fi
+    done
+}
+
+process_directory() {
+    local dir="$1"
+    find "$dir" -type f ! -path '*/.*' -print0 | sort -z | while IFS= read -r -d '' file; do
+        print_file "$file" || continue
+    done
+}
+
+main() {
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: $0 <file|directory> [file|directory...]" >&2
+        exit 1
+    fi
+    
+    for item in "$@"; do
+        if [[ ! -e "$item" ]]; then
+            echo "Warning: '$item' does not exist" >&2
+            continue
+        fi
+        
+        if [[ -d "$item" ]]; then
+            process_directory "$item"
+        elif [[ -f "$item" ]]; then
+            process_files "$item"
+        else
+            echo "Warning: '$item' is not a regular file or directory" >&2
+            continue
+        fi
+    done
+}
+
+main "$@"

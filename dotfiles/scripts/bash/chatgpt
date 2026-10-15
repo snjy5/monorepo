@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+firefox-bin -P pwa 'https://chat.openai.com/chat'

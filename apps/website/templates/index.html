@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ config.title }}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+    <style>
+        /* Matching CSS variables and base styles */
+        :root {
+            --accent: #1a4d8f;
+            --accent-dark: #0d3766;
+            --ink: #1c1c1c;
+            --muted: #5b5b5b;
+            --hairline: #d8d8d8;
+            --paper: #ffffff;
+            --bg: #f4f4f2;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            line-height: 1.6;
+            color: var(--ink);
+            background: var(--bg);
+            max-width: 700px;
+            /* Slightly narrower for a landing page */
+            margin: 0 auto;
+            padding: 4rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .sheet {
+            background: var(--paper);
+            padding: 3rem 3.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05), 0 12px 32px rgba(0, 0, 0, 0.04);
+        }
+
+        h1 {
+            margin: 0 0 0.5rem 0;
+            font-family: "Source Serif 4", Georgia, serif;
+            font-weight: 700;
+            font-size: 2.6rem;
+            color: var(--ink);
+        }
+
+        .headline {
+            font-size: 1.1rem;
+            color: var(--accent);
+            font-weight: 600;
+            margin-bottom: 2rem;
+        }
+
+        .bio {
+            font-size: 1.05rem;
+            color: #333;
+            margin-bottom: 2.5rem;
+            text-align: justify;
+        }
+
+        h2 {
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+            border-bottom: 1px solid var(--hairline);
+            padding-bottom: 0.4rem;
+            margin-bottom: 1rem;
+        }
+
+        /* Navigation Links Grid */
+        .nav-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .nav-card {
+            display: block;
+            padding: 1rem 1.2rem;
+            background: var(--bg);
+            border: 1px solid var(--hairline);
+            border-radius: 6px;
+            text-decoration: none;
+            color: var(--ink);
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .nav-card:hover {
+            border-color: var(--accent);
+            background: #f0f4f8;
+            transform: translateY(-2px);
+        }
+
+        .nav-card span {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--muted);
+            font-weight: 400;
+            margin-top: 0.2rem;
+        }
+
+        .social-links {
+            display: flex;
+            gap: 1.5rem;
+            font-size: 0.95rem;
+        }
+
+        .social-links a {
+            color: var(--accent-dark);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .social-links a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 500px) {
+            .sheet {
+                padding: 2rem 1.5rem;
+            }
+
+            .nav-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="sheet">
+        <header>
+            <h1>{{ config.extra.name }}</h1>
+            <div class="headline">{{ config.extra.headline }}</div>
+        </header>
+
+        <div class="bio">
+            <p>Hello! I'm Sanjay, a self-taught Systems Administrator and Linux Specialist based in Kerala, India. I specialize in engineering and maintaining native GNU/Linux environments from the absolute ground up.</p>
+
+            <p>For over seven years, I’ve treated servers as my second home. I thrive in headless environments, preferring the raw control of native system utilities and Infrastructure as Code over GUI-driven abstractions. Whether I'm compiling custom kernels, rescuing a corrupted bootloader, or writing my own <code>init</code> systems, my goal is always the same: build systems that are secure, highly reproducible, and incredibly efficient.</p>
+
+            <p>In fact, this very website is a reflection of my workflow—it is statically generated, hosted on AWS, and fully provisioned and automated using Terraform and Ansible.</p>
+
+            <p>Feel free to explore my projects, check out my GitHub, or read through my resume. If you share a passion for open-source technologies, low-level system optimization, or just want to talk Linux, I'd love to connect!</p>
+        </div>
+
+        <h2>Directory</h2>
+        <div class="nav-grid">
+            <a href="/resume/" class="nav-card">
+                Curriculum Vitae
+                <span>View my full technical resume</span>
+            </a>
+            <a href="/cover-letter/" class="nav-card">
+                Cover Letter
+                <span>Read my professional introduction</span>
+            </a>
+        </div>
+
+        <h2>Connect</h2>
+        <div class="social-links">
+            <a href="mailto:{{ config.extra.email }}">Email</a>
+            <a href="{{ config.extra.github }}" target="_blank" rel="noopener">GitHub</a>
+            <a href="{{ config.extra.linkedin }}" target="_blank" rel="noopener">LinkedIn</a>
+        </div>
+    </div>
+
+</body>
+
+</html>

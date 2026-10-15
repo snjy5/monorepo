@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+
+# Usage
+[ -z "$1" ] && printf "usage:\nyplay <audio url>\n" && exit 1
+
+# Set misc varibles
+YTCACHE="$HOME/.local/share/YTCACHE"
+TITLE_FILE="${YTCACHE}/title"
+
+[ -d "${YTCACHE}" ] && mkdir -p "${YTCACHE}" && touch "$TITLE_FILE"
+URL="$1"
+
+ytd() {
+# youtube-dl/yt-dlp command for lowest watchable quality video (runs in background)
+yt-dlp -i --no-abort-on-error -f worstaudio \
+	-S '+size,+br' -i --hls-use-mpegts --no-write-comments \
+	--no-warnings --ignore-no-formats-error --force-write-archive \
+	--no-part -c "${URL}" -o "$@" > "${YTCACHE}"/log 2>/dev/null &
+}
+
+_play() {
+	mpv --no-video "${OUTPUT}"
+}
+
+_offline_play() {
+	mpv --no-video "${YTCACHE}/${REUSE_TITLE}"
+}
+
+# Record infos for identification (like a unique id as name for each video)
+title="$(yt-dlp -i --print title "${URL}" 2>/dev/null || grep "${URL}" "$TITLE_FILE" | sed "s~ ${URL}~~g")"
+OUTPUT="${YTCACHE}/${title}"
+
+# Trying to reuse video instead of downloading again if $title exist in $TITLE_FILE
+REUSE_TITLE="$(grep -o "${title}" "$TITLE_FILE" | uniq)"
+if [ -n "${REUSE_TITLE}" ] && [ "${title}" = "${REUSE_TITLE}" ]
+then
+	_offline_play
+else
+    ytd "${OUTPUT}"
+	until false
+	do
+		test ! -e "${OUTPUT}"
+		sleep 3
+		_play && break
+	done
+fi
+
+# Store info to reuse already downloaded video
+echo "${title} ${URL}" >> "$TITLE_FILE" # Recording history of all video titles watched in a file
+
+# Remove duplicate entries
+gawk -i inplace '!seen[$0]++' "$TITLE_FILE"

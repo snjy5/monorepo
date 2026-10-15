@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+if [ "$#" -eq 0 ]
+then
+	edge-playback --voice "en-US-JennyNeural" --volume +50% -t </dev/stdin
+else
+	edge-playback --voice "en-US-JennyNeural" --volume +50% -t "$(printf "%s" "$@")"
+fi

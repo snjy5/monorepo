@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Usage: monctrl [gamma <temp>|dpms-off|bright <+|->]
+set -euo pipefail
+
+case "${1:-}" in
+    gamma)
+        pkill -2 gammastep 2>/dev/null || true
+        temp="${2:-3500}"
+        exec gammastep -O "$temp"
+        ;;
+    dpms-off)
+        export DISPLAY="${DISPLAY:-:0}"
+        xset dpms 0 0 600
+        xset s off
+        ;;
+    bright)
+        BACKLIGHT="/sys/class/backlight/intel_backlight"
+        [[ ! -d "$BACKLIGHT" ]] && exit 1
+        level=$(<"$BACKLIGHT/brightness")
+        max=$(<"$BACKLIGHT/max_brightness")
+        step=20
+        (( level <= 30 || level > max - 30 )) && step=1
+
+        case "${2:-}" in
+            +) (( level += step )) ;;
+            -) (( level -= step )) ;;
+            *) echo "Usage: monctrl bright {+|-}"; exit 1 ;;
+        esac
+        (( level < 1 )) && level=1
+        (( level > max )) && level=max
+        echo "$level" > "$BACKLIGHT/brightness"
+        ;;
+    *)
+        echo "Usage: monctrl {gamma [temp]|dpms-off|bright {+|-}}"
+        exit 1
+        ;;
+esac

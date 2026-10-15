@@ -1,0 +1,16 @@
+#!/usr/bin/bash
+ovpn_start() {
+  if pgrep openvpn 2>&1 > /dev/null; then
+   echo vpn already running
+   echo do riseup stop and continue
+   exit
+  fi
+  sudo openvpn --config /etc/openvpn/client/riseup.conf & disown 
+}
+
+
+
+case "$1" in 
+  stop ) sudo pkill -2 openvpn ;;
+  * ) ovpn_start ;;
+esac

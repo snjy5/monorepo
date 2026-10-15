@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# dev-ctl: Universal Developer, Dotfiles, Git & Editor Workflow Engine
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="dev-ctl"
+
+log_info()  { printf "[INFO]  %s\n" "$*" >&2; }
+log_warn()  { printf "[WARN]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+# ------------------------------------------------------------------------------
+# 1. Multi-Machine Dotfiles Synchronization
+# ------------------------------------------------------------------------------
+sync_dotfiles() {
+    local target_repo="${DOTFILES_REPO:-$HOME/git/linux-dotfiles}"
+    local host_profile="${1:-auto}"
+
+    # Auto-detect profile if not specified
+    if [[ "$host_profile" == "auto" ]]; then
+        if [[ -n "${TERMUX_VERSION:-}" || "${PREFIX:-}" =~ com.termux ]]; then
+            host_profile="termux"
+        elif [[ -f /etc/NIXOS ]]; then
+            host_profile="nixos"
+        else
+            host_profile="debian"
+        fi
+    fi
+
+    local target_dir="${target_repo}/${host_profile}"
+    [[ ! -d "$target_dir" ]] && { log_error "Repo directory '$target_dir' not found."; return 1; }
+
+    log_info "Collecting dotfiles for profile: $host_profile"
+
+    # Core user dotfiles
+    local tracking=(
+        ".bashrc" ".bash_profile" ".tmux.conf" ".gitconfig"
+        ".config/nvim" ".config/sway" ".config/waybar"
+    )
+
+    cd "$HOME" || exit 1
+    for item in "${tracking[@]}"; do
+        if [[ -e "$item" ]]; then
+            mkdir -p "$target_dir/$(dirname "$item")"
+            cp -a "$item" "$target_dir/$item"
+        fi
+    done
+
+    cd "$target_dir" || exit 1
+    # Strip nested .git trees
+    find . -type d -name ".git" ! -path "./.git" -exec rm -rf {} + 2>/dev/null || true
+
+    git add -A
+    if git diff --cached --quiet; then
+        log_info "No configuration changes detected."
+        return 0
+    fi
+
+    local commit_msg="Update dotfiles (${host_profile}): $(date '+%Y-%m-%d %H:%M:%S')"
+    git commit -m "$commit_msg"
+    git push
+    printf "Dotfiles synced and pushed for profile: %s\n" "$host_profile"
+}
+
+# ------------------------------------------------------------------------------
+# 2. Git Maintenance & Quick Push
+# ------------------------------------------------------------------------------
+git_clean_repo() {
+    [[ ! -d ".git" ]] && { log_error "Not inside a git repository."; return 1; }
+    local repo_url
+    repo_url=$(git config --get remote.origin.url || true)
+    
+    log_info "Pruning unreachable objects and optimizing packfiles..."
+    git reflog expire --expire=now --all
+    git prune
+    git gc --aggressive --prune=now
+
+    if [[ -n "$repo_url" ]]; then
+        git remote set-url origin "$repo_url"
+    fi
+    printf "Repository optimization completed.\n"
+}
+
+git_quick_push() {
+    [[ "$PWD" == "$HOME" ]] && { log_error "Cannot run blind commit in \$HOME directory."; return 1; }
+    [[ ! -d ".git" ]] && { log_error "Not inside a git repository."; return 1; }
+
+    local msg="${1:-Update: $(date '+%Y-%m-%d %H:%M:%S')}"
+    git add -A
+    if git diff --cached --quiet; then
+        log_info "Working tree clean; nothing to push."
+        return 0
+    fi
+    git commit -m "$msg"
+    git push
+}
+
+# ------------------------------------------------------------------------------
+# 3. Editor & Formatting Wrappers
+# ------------------------------------------------------------------------------
+open_single_instance_vim() {
+    local target_file="${1:-}"
+    [[ -z "$target_file" ]] && { "${EDITOR:-vim}"; return 0; }
+
+    local real_path
+    real_path=$(realpath "$target_file")
+    if pgrep -f "vim.*${real_path}" >/dev/null 2>&1; then
+        log_warn "Another Vim instance is already editing '$real_path'."
+        return 1
+    fi
+    "${EDITOR:-vim}" "$real_path"
+}
+
+format_file_nvim() {
+    local file="${1:-}"
+    [[ -z "$file" || ! -f "$file" ]] && { log_error "Target file required."; return 1; }
+    nvim --headless -n +"normal gg=G" +wq "$file"
+    printf "Formatted: %s\n" "$file"
+}
+
+# ------------------------------------------------------------------------------
+# 4. Build, Manpage & Terminal Helpers
+# ------------------------------------------------------------------------------
+compile_and_run_c() {
+    local src="${1:-}"
+    [[ -z "$src" ]] && { log_error "Source file required."; return 1; }
+    local bin="${src%.*}"
+    make "$bin" >/dev/null
+    "./$bin"
+}
+
+strip_ansi_colors() {
+    sed -e 's/\x1b\[[0-9;]*m//g'
+}
+
+# ------------------------------------------------------------------------------
+# 5. CLI Handling
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Developer, Git & Editor Workflow Engine
+
+Usage:
+  $PROG_NAME <command> [arguments]
+
+Commands:
+  dotpush     [profile]          Sync and commit dotfiles (auto|debian|nixos|termux)
+  git-clean                      Expire reflog, prune, and aggressively gc repository
+  gitp        [commit_msg]       Stage all changes, commit, and push
+  vim         [file]             Open file with single-instance lock validation
+  format      <file>             Headless code indentation using Neovim
+  run         <source_file>      Make and immediately execute binary
+  uncolor                        Strip ANSI color escapes from standard input
+  cman        <symbol>           View C library section 3 manual page
+
+Examples:
+  $PROG_NAME dotpush auto
+  $PROG_NAME gitp "refactor: network module"
+  cat log.txt | $PROG_NAME uncolor
+EOF
+    exit 0
+}
+
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        dotpush)      sync_dotfiles "${1:-auto}" ;;
+        git-clean)    git_clean_repo ;;
+        gitp|push)    git_quick_push "$@" ;;
+        vim)          open_single_instance_vim "$@" ;;
+        format)       format_file_nvim "$@" ;;
+        run)          compile_and_run_c "$@" ;;
+        uncolor)      strip_ansi_colors ;;
+        cman)         man -S3 "$@" ;;
+        *)            show_help ;;
+    esac
+}
+
+main "$@"
+

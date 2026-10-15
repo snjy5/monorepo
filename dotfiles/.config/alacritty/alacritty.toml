@@ -1,0 +1,59 @@
+#[window]
+#startup_mode = "Fullscreen"
+
+[bell]
+#enable = false
+
+#[bright]
+#blue = "#0d73cc"
+#cyan = "#0dcdcd"
+#green = "#19cb00"
+#magenta = "#cb1ed1"
+#red = "#cc0403"
+#white = "#dddddd"
+#yellow = "#cecb00"
+
+[cursor]
+style = "Beam"
+#unfocused_hollow_thickness = 1.0
+
+[font]
+#disable_ligatures = "always"
+size = 14.0
+
+[font.bold]
+family = "JetBrainsMono"
+style = "Bold"
+
+[font.italic]
+family = "JetBrainsMono"
+style = "Italic"
+
+[font.normal]
+family = "JetBrainsMono"
+style = "Regular"
+
+[colors.normal]
+black = "#000000"
+blue = "#0d73cc"
+cyan = "#0dcdcd"
+green = "#19cb00"
+magenta = "#cb1ed1"
+red = "#cc0403"
+white = "#dddddd"
+yellow = "#cecb00"
+
+# Default colors
+[colors.primary]
+background = '#000000'
+foreground = '#AAAAAA'
+
+# Cursor colors
+[colors.cursor]
+cursor = '#F8F8F2'
+text = '#000000'
+
+# Selection colors
+[colors.selection]
+background = '#44475A'
+text = '#F8F8F2'

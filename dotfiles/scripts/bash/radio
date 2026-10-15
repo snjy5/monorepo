@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. Dependency checks
+if ! command -v mpv >/dev/null 2>&1; then
+    printf "Error: 'mpv' is required but not installed.\n" >&2
+    exit 1
+fi
+
+# 2. Curated station list (Live streams & radio channels)
+declare -A STATIONS=(
+    ["lofi"]="https://www.youtube.com/watch?v=jfKfPfyJRdk"           # Lofi Girl - beats to relax/study to
+    ["synthwave"]="https://www.youtube.com/watch?v=4xDzrJKXOOY"      # Lofi Girl - synthwave radio
+    ["ncs-edm"]="https://www.youtube.com/watch?v=7tNtU5XFwrU"        # NCS 24/7 EDM Livestream
+    ["chillhop"]="https://www.youtube.com/watch?v=5yx6BWlEvqA"       # Chillhop Radio - jazzy & lofi beats
+    ["techno"]="https://www.youtube.com/watch?v=6Irus3d5f0E"         # Non-Stop Techno Rave Radio
+    ["classical"]="https://stream.srg-ssr.ch/m/rsc_de/mp3_128"       # Swiss Classical Radio (Direct Stream)
+    ["groove-salad"]="https://ice1.somafm.com/groovesalad-128-mp3"   # SomaFM: Groove Salad
+    ["drone-zone"]="https://ice1.somafm.com/dronezone-128-mp3"       # SomaFM: Drone Zone
+)
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [URL | QUERY | -l | --random]
+
+Stream internet radio or YouTube audio without video.
+
+Arguments:
+  [URL]           Play any direct audio/YouTube URL
+  [QUERY]         Search and play directly (e.g. '$(basename "$0") "ytdl://ytsearch:smooth jazz"')
+  -r, --random    Play a random station from the preset list (default when no args)
+  -l, --list      List available station presets
+  -s, --station   Play a preset by name (e.g. '$(basename "$0") -s lofi')
+  -h, --help      Show this help message
+EOF
+    exit 0
+}
+
+# 3. Handle arguments
+TARGET=""
+
+if [[ $# -eq 0 ]] || [[ "${1:-}" == "-r" ]] || [[ "${1:-}" == "--random" ]]; then
+    # Pick a random preset
+    keys=("${!STATIONS[@]}")
+    random_key="${keys[RANDOM % ${#keys[@]}]}"
+    TARGET="${STATIONS[$random_key]}"
+    printf "==> Playing random station: [%s]\n" "$random_key"
+elif [[ "${1:-}" == "-l" ]] || [[ "${1:-}" == "--list" ]]; then
+    printf "Available presets:\n"
+    for name in "${!STATIONS[@]}"; do
+        printf "  %-14s -> %s\n" "$name" "${STATIONS[$name]}"
+    done
+    exit 0
+elif [[ "${1:-}" == "-s" ]] || [[ "${1:-}" == "--station" ]]; then
+    station_name="${2:-}"
+    if [[ -z "$station_name" || -z "${STATIONS[$station_name]:-}" ]]; then
+        printf "Error: Unknown station '%s'. Use --list to view options.\n" "$station_name" >&2
+        exit 1
+    fi
+    TARGET="${STATIONS[$station_name]}"
+    printf "==> Playing preset: [%s]\n" "$station_name"
+elif [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
+    usage
+else
+    # Direct argument (URL or custom input)
+    TARGET="$1"
+fi
+
+# 4. Stream via mpv
+# --ytdl-format="bestaudio/best": avoids downloading 1080p/4K video tracks
+# --no-video: skips video rendering completely
+# --untimed / --no-correct-pts: minimal latency on live streams
+exec mpv \
+    --no-video \
+    --ytdl-format="bestaudio/best" \
+    --demuxer-max-bytes=150MiB \
+    --demuxer-readahead-secs=20 \
+    --no-resume-playback \
+    --title="Radio: ${TARGET}" \
+    -- "${TARGET}"

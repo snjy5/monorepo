@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+DISPLAY=:0
+#pid="$$"
+
+#pid_kill() {
+#    readarray pids < <(ps -eo pid,command |\
+#        grep mousedotool | grep -v grep |\
+#        awk '{print $1}' | sed "s/$pid//g")
+
+#    for i in "${pids[@]}"; do
+#        kill $i || true
+#    done
+#}
+
+# Move cursor
+left_fine() { 
+    xdotool mousemove_relative -- -10 0 
+}
+
+down_fine() { 
+    xdotool mousemove_relative -- 0 10
+}
+
+up_fine() { 
+    xdotool mousemove_relative -- 0 -10
+}
+
+right_fine() { 
+    xdotool mousemove_relative -- 10 0
+}
+
+left() { 
+    xdotool mousemove_relative -- -100 0 
+}
+
+down() { 
+    xdotool mousemove_relative -- 0 100
+}
+
+up() { 
+    xdotool mousemove_relative -- 0 -100
+}
+
+right() { 
+    xdotool mousemove_relative -- 100 0
+}
+
+# Scroll
+s_up() {
+    xdotool click 4
+}
+
+s_down() {
+    xdotool click 5
+}
+
+s_left() {
+    xdotool click 6
+}
+
+s_right() {
+    xdotool click 7
+}
+
+# Click cursor
+left_click() {
+    xdotool click --clearmodifiers 1
+}
+
+middle_click() {
+    xdotool click --clearmodifiers 2
+}
+
+right_click() {
+    xdotool click --clearmodifiers 3
+}
+
+# Hold and release
+click_hold() {
+    xdotool mousedown 1
+} 
+
+unhold() {
+    xdotool mouseup 1
+}
+
+where_mouse() {
+    xdotool getwindowfocus getwindowgeometry --shell |\
+        awk -F= '/X=|Y=|WIDTH=|HEIGHT=/ {print $2}' |\
+        paste -sd' ' - | awk '{print $1 + $3 / 2, $2 + $4 / 2}' |\
+        xargs xdotool mousemove
+    }
+
+mouse_pos() {
+  eval "$(xdotool getmouselocation --shell)"
+  i3-msg "move window to position $X $Y"
+}
+
+    if [[ $# -eq 0 ]]; then 
+        declare -F | awk '{print $3}'
+        exit
+    fi
+
+    for cmd; do $cmd; done

@@ -1,0 +1,43 @@
+#!/usr/bin/bash
+PATH=/usr/bin:/bin
+export DISPLAY=:0
+export XAUTHORITY=/home/void/.Xauthority
+BLOCKLIST=/home/void/block_domains.txt
+[[ ! -f "$BLOCKLIST" ]] && exit
+
+block() {
+  while read -r i; do
+    if ! grep -q "0.0.0.0 $i" /etc/hosts; then
+      echo "0.0.0.0 $i" >> /etc/hosts
+    else
+      exit
+    fi
+  done < "$BLOCKLIST"
+  pgrep openvpn && pkill -2 openvpn
+  # Quit firefox internally to apply dns block
+  xdotool search --onlyvisible --class "firefox" | while read wid; do
+    xdotool windowactivate --sync "$wid" key ctrl+q
+  done
+}
+
+unblock() {
+  while read -r i; do
+    sed -i "/^0\.0\.0\.0 $i$/d" /etc/hosts
+  done < "$BLOCKLIST"
+  sed -i '/^$/d' /etc/hosts
+}
+
+hour=$(date +%H)
+minute=$(date +%M)
+now=$(( 10#$hour * 60 + 10#$minute ))
+
+# Schedule:
+# - Unblock   15:00–18:00 (3 pm to 6 pm leisure)
+# - Block     all other times
+
+if (( now >= 15*60 && now < 18*60 )); then
+  unblock
+else
+  block
+true
+fi

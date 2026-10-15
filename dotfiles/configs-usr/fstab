@@ -1,0 +1,48 @@
+#/dev/sda2 UUID=84ac33a9-c104-4027-a649-6b7bb03bcea0
+<<<<<<< dest:fstab
+<<<<<<< dest:confs/etc/fstab
+<<<<<<< dest:fstab
+=======
+>>>>>>> source:../misc/confs/etc/fstab
+LABEL=ROOT    /    btrfs    rw,suid,dev,exec,nouser,compress=no,noatime,space_cache=v2,commit=10,datacow,subvol=/@root    0 0
+
+#/dev/sda2 UUID=84ac33a9-c104-4027-a649-6b7bb03bcea0
+LABEL=ROOT    /home    btrfs    rw,suid,dev,exec,nouser,compress=no,noatime,space_cache=v2,commit=10,datacow,subvol=/@home    0 0
+
+#/dev/sda2 UUID=84ac33a9-c104-4027-a649-6b7bb03bcea0
+LABEL=ROOT    /snapshot    btrfs    rw,suid,dev,exec,nouser,compress=no,noatime,space_cache=v2,commit=10,datacow,subvol=/@snapshot    0 0
+
+#/dev/sda3 EFI
+LABEL=BOOT    /boot/efi    vfat    rw,noatime,nofail,utf8,errors=remount-ro    0 2
+
+# swap
+LABEL=SWAP    none    swap    noatime    0 0
+
+#/tmp entirely on RAM
+#ramfs    /tmp    ramfs    rw,noatime    0 0
+
+#/run entirely on RAM
+#ramfs    /run    ramfs    rw,noatime    0 0
+<<<<<<< dest:confs/etc/fstab
+=======
+=======
+>>>>>>> source:small_files/etc/fstab
+LABEL=ROOT    /    btrfs    rw,suid,dev,exec,nouser,compress=no,noatime,space_cache=v2,commit=1,noacl,noautodefrag,barrier,nodatacow,nodatasum,notreelog,thread_pool=12,subvol=/@root    0 0
+
+#/dev/sda2 UUID=84ac33a9-c104-4027-a649-6b7bb03bcea0
+LABEL=ROOT    /home    btrfs    rw,suid,dev,exec,nouser,compress=no,noatime,space_cache=v2,commit=1,noacl,noautodefrag,barrier,nodatacow,nodatasum,notreelog,thread_pool=12,subvol=/@home    0 0
+
+#/dev/sda2 UUID=84ac33a9-c104-4027-a649-6b7bb03bcea0
+LABEL=ROOT    /snapshot    btrfs    rw,suid,dev,exec,nouser,compress=no,noatime,space_cache=v2,commit=1,noacl,noautodefrag,barrier,nodatacow,nodatasum,notreelog,thread_pool=12,subvol=/@snapshot    0 0
+
+#/dev/sda1 UUID=1CDD-90F4
+LABEL=BOOT    /boot/efi    vfat    rw,noatime,nofail,utf8,errors=remount-ro    0 2
+
+#/tmp entirely on RAM
+ramfs    /tmp    ramfs    rw,noatime    0 0
+<<<<<<< dest:fstab
+>>>>>>> source:small_files/etc/fstab
+=======
+>>>>>>> source:../misc/confs/etc/fstab
+=======
+>>>>>>> source:small_files/etc/fstab

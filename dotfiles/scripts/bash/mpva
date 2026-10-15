@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+mpv --no-audio-display --no-video --shuffle --no-resume-playback "${@}"

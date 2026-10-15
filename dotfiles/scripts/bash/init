@@ -1,0 +1,87 @@
+#!/bin/bash
+export HOME="/home/void"
+PATH="$HOME/.bin:$PATH"
+
+init_off() {
+    echo "INIT: called $1" &>>$log 
+    echo "INIT: unmount first" &>>$log 
+    init-mount umount
+    $1
+}
+
+trap 'init_off reboot.bin' SIGINT
+trap 'init_off poweroff.bin' SIGTERM
+
+pre_init() {
+    true
+}
+
+[[ "$0" == "/init" ]] && pre_init
+#[[ "$0" != *"switch_root"* ]] && exit
+
+# logging
+logdir=/var/log
+log=$logdir/init.log
+
+mount -o remount,rw /
+mkdir -p $logdir
+
+mv $log $log.old
+echo "INIT: logging init" &>>$log
+
+echo 'INIT: mounting fs' &>>$log 
+init-mount mount &>>$log 
+
+echo 'INIT: loading modules' &>>$log 
+init-modules
+
+echo 'INIT: setting hostname' &>>$log 
+cat /etc/hostname > /proc/sys/kernel/hostname
+
+echo 'UDEV: starting udev log' &>>$log 
+echo 'UDEV: populating /dev' &>>$log 
+while true; do udevd; done &
+while true; do udevadm monitor --environment --kernel --udev &>>$log; done &
+udevadm trigger
+udevadm settle
+udevadm control --reload-rules
+udevadm trigger --action=add
+
+user-permissions
+echo 'INIT: set up device interface permissions for user' &>>$log 
+
+#mkdir -p /run/dbus
+#dbus-daemon --system 
+#echo 'INIT: set up dbus'
+
+echo 'INIT: executing powersave script' &>>$log
+powersave >/dev/null 2>&1 & 
+
+echo 'INIT: setting up tty1' &>>$log
+openvt -c 1 -f true
+while true; do agetty tty1 linux; sleep 5; done &
+
+echo 'INIT: setting up tty2' &>>$log
+openvt -c 2 -f true
+while true; do agetty tty2 linux; sleep 5; done &
+
+echo 'INIT: setting dhcp' &>>$log 
+iw reg set IN
+ip link set wlan0 up
+dhcpcd
+
+echo 'INIT: setting up  system clock' &>>$log 
+chronyd 'server pool.ntp.org iburst'
+hwclock --systohc
+
+echo 'INIT: set up wpa_supplicant' &>>$log
+while true; do wpa_supplicant -qq -iwlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf &>>$log; sleep 60; done &
+
+echo 'INIT: setup alsa' &>>$log
+alsactl init
+
+echo 'DMESG: starting dmesg log' &>>$log
+dmesg &>>$log
+while true; do dmesg -W &>>$log; done &
+
+wait

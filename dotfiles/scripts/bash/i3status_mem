@@ -1,0 +1,20 @@
+#!/bin/bash
+meminfo="/proc/meminfo"
+
+i3status | while true
+do
+    free=$(awk '/^MemFree/ {print $2}' $meminfo)
+    cached=$(awk '/^Cached/ {print $2}' $meminfo)
+    total_free_KB=$((free + cached))
+
+    if [[ "$total_free_KB" -gt $((1024 * 1024)) ]]; then
+        total_free_mem=$(echo "scale=1; $total_free_KB / $((1024 * 1024))" | bc)
+        total_free_mem+=" GB"
+    else
+        total_free_mem=$(echo "scale=0; $total_free_KB / $((1024))" | bc)
+        total_free_mem+=" MB"
+    fi
+    
+    read line
+    echo "$line" | sed "s/\[{/\[{\"full_text\":\" Free: $total_free_mem \",\"separator\":false },{/"
+done

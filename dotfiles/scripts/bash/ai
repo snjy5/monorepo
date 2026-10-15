@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import re
+import time
+import subprocess
+from datetime import datetime
+
+try:
+    from groq import Groq
+    client = Groq()
+except ImportError:
+    print("Error: The 'groq' library is not installed. Run: pip install groq")
+    sys.exit(1)
+except Exception as e:
+    print(f"Error initializing client. Make sure GROQ_API_KEY is set: {e}")
+    sys.exit(1)
+
+MODEL_NAME = "qwen/qwen3.6-27b"
+# MODEL_NAME = "llama-3.1-8b-instant"
+#MODEL_NAME = "llama-3.3-70b-versatile"
+# MODEL_NAME = "openai/gpt-oss-20b"
+#MODEL_NAME = "openai/gpt-oss-120b"
+# MODEL_NAME = "groq/compound"
+
+SYSTEM_PROMPT = """
+Don't rephrase, or paraphrase me. Don't analyze me, don't repeat my words back to me, rather add new information like you are talking to me. Don't act like my journal or notebook, I want a conversational partner who has either something to add or validate or such. Don't disagree at all, I rather learn by finding contradictions within myself and living with it, or Socratic questions are allowed rarely when needed. Don'y guess what I'm talking about, ask me, dont assume. Still be assuring, encouraging and supportive, and loving/affectionate. Don't suggest a fix, treat me as independent human that don't need crutches. Answer what is asked, dont derail.
+"""
+
+def parse_markdown(filepath):
+    """Parses raw markdown into message dictionaries for the Groq API."""
+    if not os.path.exists(filepath):
+        return []
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    # Changed \s*$ to [ \t]*$ to prevent swallowing newlines
+    pattern = re.compile(r"^##\s+(User|Assistant):[ \t]*$", re.MULTILINE | re.IGNORECASE)
+    splits = pattern.split(text)
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    for i in range(1, len(splits), 2):
+        role_str = splits[i].strip().lower()
+        role = "user" if role_str == "user" else "assistant"
+        
+        content = splits[i + 1].strip() if (i + 1) < len(splits) else ""
+
+        # Only append if there's actual content
+        if content:
+            messages.append({"role": role, "content": content})
+
+    return messages
+
+
+def ensure_file_initialized(filepath):
+    """Creates the file directory and initial header if non-existent."""
+    if not os.path.exists(filepath):
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("## User:\n\n")
+
+
+def main():
+    ai_dir = os.getenv('HOME') + "/ai_hist/"
+    date = datetime.now()
+    filepath = f"{ai_dir}{date}.md"
+
+    ensure_file_initialized(filepath)
+
+    nvim_cmd = [
+        "nvim",
+        "-c", "set autoread",
+        "-c", "call timer_start(100, {-> execute('checktime')}, {'repeat': -1})",
+        "-c", "normal! G$",
+        filepath
+    ]
+
+    nvim_proc = subprocess.Popen(nvim_cmd)
+    last_mtime = os.path.getmtime(filepath)
+
+    try:
+        while nvim_proc.poll() is None:
+            time.sleep(0.2)
+
+            if not os.path.exists(filepath):
+                continue
+
+            current_mtime = os.path.getmtime(filepath)
+
+            # Trigger only if the file was modified
+            if current_mtime > last_mtime:
+                messages = parse_markdown(filepath)
+
+                # Ensure the last real message was from the user
+                if messages and messages[-1]["role"] == "user":
+                    
+                    # Single file handle to manage the entire stream lifecycle
+                    with open(filepath, "a", encoding="utf-8") as f:
+                        f.write("\n\n## Assistant:\n\n")
+                        f.flush()
+
+                        try:
+                            kwargs = {
+                                "model": MODEL_NAME,
+                                "messages": messages,
+                                "stream": True,
+                            }
+
+                            if "qwen" in MODEL_NAME.lower():
+                                kwargs["reasoning_effort"] = "none"
+
+                            stream = client.chat.completions.create(**kwargs)
+
+                            for chunk in stream:
+                                delta = chunk.choices[0].delta.content
+                                if delta:
+                                    f.write(delta)
+                                    f.flush() # Flushes chunk immediately so Neovim checktime sees it
+
+                            f.write("\n\n## User:\n\n")
+                            f.flush()
+
+                        except Exception as e:
+                            f.write(f"\n[API Error: {e}]\n\n## User:\n\n")
+                            f.flush()
+
+                # Update the mtime to avoid a looping trigger from the writes we just made
+                time.sleep(0.1)
+                last_mtime = os.path.getmtime(filepath)
+
+    finally:
+        print(f"\nExited chat session. File saved at '{filepath}'.")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Usage: pwa <target> [extra_args...]
+set -euo pipefail
+
+BROWSER="firefox"
+command -v firefox-bin >/dev/null 2>&1 && BROWSER="firefox-bin"
+
+app_url=""
+case "${1:-}" in
+    chatgpt)  app_url="https://chat.openai.com/chat" ;;
+    chess)    app_url="https://www.chess.com/play" ;;
+    lichess)  app_url="https://www.lichess.org/" ;;
+    youchat)  app_url="https://you.com/search?q=Hi&tbm=youchat" ;;
+    keep)     app_url="https://keep.google.com/" ;;
+    youtube)  app_url="https://www.youtube.com/" ;;
+    tmp)
+        HOME="/tmp" exec "$BROWSER" --new-window --private-window --disable-pinch "${@:2}"
+        ;;
+    *)
+        echo "Usage: pwa {chatgpt|chess|lichess|youchat|keep|youtube|tmp}"
+        exit 1
+        ;;
+esac
+
+exec "$BROWSER" --new-window --disable-pinch --app="$app_url" "${@:2}"

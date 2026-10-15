@@ -1,0 +1,13 @@
+*/*::guru ~amd64
+*/*::wayland-desktop ~amd64
+gui-apps/* ~amd64
+dev-libs/date ~amd64
+dev-libs/tllist ~amd64
+net-misc/yt-dlp **
+games-action/supertuxkart ~amd64
+app-editors/* ~amd64
+app-editors/neovim ~amd64
+sys-apps/toybox ~amd64
+app-emulation/virtio-win ~amd64
+dev-python/coloredlogs ~amd64
+dev-python/humanfriendly ~amd64

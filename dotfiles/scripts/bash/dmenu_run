@@ -1,0 +1,5 @@
+#!/bin/bash
+for i in ${PATH//:/ }
+do 
+    find $i -printf '%f\n' 2>/dev/null
+done | dmenu | /bin/bash

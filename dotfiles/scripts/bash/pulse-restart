@@ -1,0 +1,10 @@
+#!/usr/bin/bash
+sleep 5
+lock=/tmp/pulse_audio_restart
+[[ -f $lock ]] && exit 1
+touch $lock
+trap "/usr/bin/rm -f $lock" ERR INT TERM EXIT
+if ! pgrep pulseaudio; then
+    alsactl init
+    pulseaudio -D
+fi

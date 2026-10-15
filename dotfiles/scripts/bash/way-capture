@@ -1,0 +1,7 @@
+#!/bin/env -S bash --norc --noprofile
+save_path="${HOME}/Capture"
+file="${save_path}/$(date +%Y%m%d-%H%M%S-%N).jpeg"
+
+grim -c -t jpeg $file
+
+imv $file

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ensure mpv is installed
+if ! command -v mpv >/dev/null 2>&1; then
+    printf "Error: mpv is not installed or not in PATH.\n" >&2
+    exit 1
+fi
+
+# Default to current directory if no path is provided
+targets=("${@:-.}")
+
+# Validate target paths exist
+for target in "${targets[@]}"; do
+    if [[ ! -e "$target" ]]; then
+        printf "Error: Path not found: %s\n" "$target" >&2
+        exit 1
+    fi
+done
+
+# Create a secure temporary file and guarantee cleanup on any exit
+playlist="$(mktemp "${TMPDIR:-/tmp}/mpv-shuf-XXXXXX.m3u")"
+cleanup() {
+    rm -f "$playlist"
+}
+trap cleanup EXIT INT TERM
+
+# Build the playlist with absolute paths
+# If shuf is missing (e.g. macOS BSD coreutils), fallback to awk or sort -R
+find "${targets[@]}" -type f | while IFS= read -r file; do
+    [[ "$file" = /* ]] && printf "%s\n" "$file" || printf "%s/%s\n" "$PWD" "$file"
+done | if command -v shuf >/dev/null 2>&1; then
+    shuf
+elif command -v sort >/dev/null 2>&1; then
+    sort -R 2>/dev/null || cat
+else
+    cat
+fi > "$playlist"
+
+# Check if any playable files were discovered
+if [[ ! -s "$playlist" ]]; then
+    printf "Error: No files found to play in: %s\n" "${targets[*]}" >&2
+    exit 1
+fi
+
+# Run mpv
+exec mpv \
+    --no-audio-display \
+    --no-video \
+    --no-resume-playback \
+    --playlist="$playlist"

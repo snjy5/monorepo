@@ -1,0 +1,116 @@
+{
+  "layer": "top",
+  "position": "bottom",
+  "height": 30,
+  "spacing": 4,
+
+  "modules-left": [
+    "sway/workspaces",
+    "sway/mode"
+  ],
+  "modules-center": [
+    "sway/window"
+  ],
+"modules-right": [
+    "network",
+    "cpu",
+    "custom/cputemp",
+    "memory",
+    "pulseaudio",
+    "backlight",
+    "battery",
+    "clock#date",
+    "clock#time",
+    "tray"
+  ],
+
+  "sway/workspaces": {
+    "disable-scroll": true,
+    "all-outputs": true,
+    "format": "{name}"
+  },
+
+  "sway/window": {
+    "max-length": 40
+  },
+
+  /* --- Network: IP & Interface --- */
+  "network": {
+    "format-wifi": "{essid} ({signalStrength}%)   {ipaddr}",
+    "format-ethernet": "{ifname}: {ipaddr} 󰈀",
+    "format-linked": "{ifname} (No IP) 󰈀",
+    "format-disconnected": "Disconnected ⚠",
+    "tooltip-format": "{ifname} via {gwaddr} 󰩠",
+    "max-length": 35
+  },
+
+  /* --- CPU Usage --- */
+  "cpu": {
+    "interval": 2,
+    "format": "CPU: {usage}% ",
+    "tooltip": true
+  },
+
+/* --- Custom CPU Temperature (Bypasses hwmon shifting) --- */
+  "custom/cputemp": {
+    // The shell will expand hwmon* perfectly on boot. Awk converts millidegrees to degrees.
+    "exec": "awk '{print int($1/1000)\"°C\"}' /sys/devices/platform/coretemp.0/hwmon/hwmon*/temp2_input",
+    "format": "{} ",
+    "interval": 2,
+    "tooltip": false
+  },
+
+  /* --- RAM: Used / Total & Free --- */
+  "memory": {
+    "interval": 3,
+    "format": "RAM: {used:0.1f}G/{total:0.1f}G ({avail:0.1f}G free) ",
+    "tooltip-format": "Swap: {swapUsed:0.1f}G / {swapTotal:0.1f}G"
+  },
+
+  /* --- Audio --- */
+  "pulseaudio": {
+    "format": "{volume}% {icon}",
+    "format-muted": "Muted 󰝟",
+    "format-icons": {
+      "default": ["󰕿", "󰖀", "󰕾"]
+    },
+    "on-click": "pwvucontrol"
+  },
+
+  /* --- Brightness --- */
+  "backlight": {
+    "format": "{percent}% 󰃠",
+    "on-scroll-up": "light -A 5",
+    "on-scroll-down": "light -U 5"
+  },
+
+  /* --- Battery --- */
+  "battery": {
+    "states": {
+      "warning": 30,
+      "critical": 15
+    },
+    "format": "{capacity}% {icon}",
+    "format-charging": "{capacity}% 󰂄",
+    "format-plugged": "{capacity}% ",
+    "format-icons": ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
+  },
+
+  /* --- Date --- */
+  "clock#date": {
+    "format": " {:%a, %d %b}",
+    "tooltip-format": "<tt><small>{calendar}</small></tt>"
+  },
+
+  /* --- Time --- */
+  "clock#time": {
+    "interval": 1,
+    "format": " {:%I:%M:%S}"
+  },
+
+  /* --- System Tray --- */
+  "tray": {
+    "icon-size": 16,
+    "spacing": 8
+  }
+}

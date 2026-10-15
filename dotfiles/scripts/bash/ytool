@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Usage: ytool [play|audio|video|ytfzf-audio|ytfzf-video] <url/query>
+set -euo pipefail
+
+CACHE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ytcache"
+mkdir -p "$CACHE_DIR"
+
+case "${1:-}" in
+    audio)
+        shift
+        exec mpv --no-audio-display --no-video --shuffle --no-resume-playback "$@"
+        ;;
+    yta)
+        t="$(mktemp)"
+        invidious_instance="https://invidious.privacydev.net" ytfzf -L > "$t"
+        mpv --no-audio-display --no-video --ytdl-raw-options=format-sort=acodec:m4a --ytdl-format='bestaudio' "$(<"$t")"
+        rm -f "$t"
+        ;;
+    ytv)
+        t="$(mktemp)"
+        invidious_instance="https://invidious.privacydev.net" ytfzf -L > "$t"
+        mpv "$(<"$t")"
+        rm -f "$t"
+        ;;
+    cached)
+        url="$2"
+        title="$(yt-dlp -i --print title "$url" 2>/dev/null || echo "video_$(date +%s)")"
+        outfile="$CACHE_DIR/$title"
+        if [[ -f "$outfile" ]]; then
+            exec mpv --no-video "$outfile"
+        else
+            yt-dlp -i -f worstaudio -c "$url" -o "$outfile" 2>/dev/null &
+            sleep 3
+            exec mpv --no-video "$outfile"
+        fi
+        ;;
+    *)
+        echo "Usage: ytool {audio|yta|ytv|cached <url>}"
+        exit 1
+        ;;
+esac

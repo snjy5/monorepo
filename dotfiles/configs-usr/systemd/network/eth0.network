@@ -1,0 +1,16 @@
+[Match]
+Name=eth0
+Type=ether
+
+[Network]
+DHCP=ipv4
+DHCPServer=yes
+LinkLocalAddressing=ipv4
+IPv4LLRoute=true
+
+[DHCPV4]
+SendHostname=debian
+Hostname=debian
+
+[DHCPServer]
+PersistLeases=no

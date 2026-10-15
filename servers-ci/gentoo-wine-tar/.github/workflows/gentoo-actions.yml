@@ -1,0 +1,39 @@
+name: Gentoo wine tarball
+
+on: 
+  workflow_dispatch:
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+
+
+    - name: Cleanup
+      run: |
+        sudo ./cleanup.sh || ./tmate.sh
+
+    - name: Setting environment
+      run: |
+        sudo ./env.sh || ./tmate.sh
+
+    - name: Building packages
+      run: |
+        sudo ./build.sh || ./tmate.sh
+
+    - name: Creating tarball
+      run: |
+        sudo ./tar.sh
+
+    - uses: "marvinpinto/action-automatic-releases@latest"
+      with:
+        repo_token: "${{ secrets.TOKEN_GITHUB }}"
+        automatic_release_tag: "latest"
+        prerelease: true
+        title: "Tarball"
+        files: |
+         ./gentoo.tar.gz

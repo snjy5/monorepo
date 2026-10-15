@@ -1,0 +1,2 @@
+#!/bin/bash
+aria2c -c -x "$1" -s "$1" -k1M --file-allocation=none --stream-piece-selector=random "$2"

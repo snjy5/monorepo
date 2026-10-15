@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+TMP="$(mktemp)"
+"$EDITOR" "$TMP"
+gpt <"$TMP"
+rm -f "$TMP"

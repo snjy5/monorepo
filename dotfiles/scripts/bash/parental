@@ -1,0 +1,44 @@
+#!/usr/bin/bash
+PATH=/usr/bin:/bin
+export DISPLAY=:0
+export XAUTHORITY=/home/void/.Xauthority
+BLOCKLIST=/home/void/block_domains.txt
+[[ ! -f "$BLOCKLIST" ]] && exit
+
+quit_stuff() {
+  xdotool search --onlyvisible --class "firefox" | while read wid; do
+    xdotool windowactivate --sync "$wid" key ctrl+q
+  done
+  pgrep openvpn && pkill -2 openvpn
+}
+
+block() {
+  changed=0
+  while read -r domain; do
+    if ! grep -q "0.0.0.0 $domain" /etc/hosts; then
+      echo "0.0.0.0 $domain" >> /etc/hosts
+      changed=1
+    fi
+  done < "$BLOCKLIST"
+  
+  [[ $changed -eq 1 ]] && quit_stuff
+}
+
+unblock() {
+  changed=0
+  while read -r domain; do
+    if grep -q "0.0.0.0 $domain" /etc/hosts; then
+      sed -i "/^0\.0\.0\.0 $domain$/d" /etc/hosts
+      changed=1
+    fi
+  done < "$BLOCKLIST"
+  
+  [[ $changed -eq 1 ]] && sed -i '/^$/d' /etc/hosts
+}
+
+day=$(date +%d)
+if (( day % 2 == 0 )); then
+  block
+else
+  unblock
+fi

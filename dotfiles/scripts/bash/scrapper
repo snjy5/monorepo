@@ -1,0 +1,9 @@
+#!/bin/bash
+# HTML scrapper
+URL="$1"
+
+# Scrape the HTML file using links and sed
+readarray scrapped_content < <(links -dump "$URL" | sed 's/<[^>]*>//g')
+
+# Print the plain text
+printf "%s\n" "${scrapped_content[*]}"

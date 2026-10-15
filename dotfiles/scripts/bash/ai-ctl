@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# ai-ctl: Universal Streaming LLM Client, Scratchpad & Local Model Engine
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="ai-ctl"
+HISTORY_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ai_hist"
+mkdir -p "$HISTORY_DIR"
+
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+# ------------------------------------------------------------------------------
+# 1. Scratchpad LLM Prompting
+# ------------------------------------------------------------------------------
+scratchpad_ask() {
+    local tmp
+    tmp=$(mktemp /tmp/ai_prompt_XXXXXX.md)
+    "${EDITOR:-vim}" "$tmp"
+    if [[ -s "$tmp" ]]; then
+        ask_model < "$tmp"
+    fi
+    rm -f "$tmp"
+}
+
+ask_model() {
+    local prompt
+    prompt=$(cat -)
+    [[ -z "$prompt" ]] && return 0
+
+    if command -v gpt >/dev/null 2>&1; then
+        printf "%s" "$prompt" | gpt
+    elif [[ -n "${GROQ_API_KEY:-}" ]]; then
+        python3 -c '
+import os, sys
+from groq import Groq
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+resp = client.chat.completions.create(
+    model="llama-3.3-70b-versatile",
+    messages=[{"role": "user", "content": sys.stdin.read()}],
+    stream=True
+)
+for chunk in resp:
+    delta = chunk.choices[0].delta.content
+    if delta: sys.stdout.write(delta); sys.stdout.flush()
+print()
+' <<< "$prompt"
+    else
+        log_error "Neither local 'gpt' engine nor GROQ_API_KEY environment variable is set."
+        return 1
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 2. Interactive Neovim Streaming Daemon
+# ------------------------------------------------------------------------------
+start_nvim_chat_session() {
+    [[ -z "${GROQ_API_KEY:-}" ]] && { log_error "GROQ_API_KEY environment variable not configured."; return 1; }
+
+    local session_file="${HISTORY_DIR}/chat_$(date +%Y%m%d_%H%M%S).md"
+    printf "## User:\n\n" > "$session_file"
+
+    local nvim_cmd=(
+        nvim
+        "-c" "set autoread"
+        "-c" "call timer_start(100, {-> execute('checktime')}, {'repeat': -1})"
+        "-c" "normal! G$"
+        "$session_file"
+    )
+
+    # Launch daemon in background and editor in foreground
+    python3 -c "
+import os, sys, re, time
+from groq import Groq
+
+client = Groq()
+filepath = '$session_file'
+model_name = 'qwen/qwen3.6-27b'
+
+def parse_markdown(fp):
+    if not os.path.exists(fp): return []
+    with open(fp, 'r', encoding='utf-8') as f: text = f.read()
+    pattern = re.compile(r'^##\s+(User|Assistant):[ \t]*$', re.MULTILINE | re.IGNORECASE)
+    splits = pattern.split(text)
+    msgs = [{'role': 'system', 'content': 'You are a helpful, direct, intelligent collaborator.'}]
+    for i in range(1, len(splits), 2):
+        role = 'user' if splits[i].strip().lower() == 'user' else 'assistant'
+        content = splits[i+1].strip() if i+1 < len(splits) else ''
+        if content: msgs.append({'role': role, 'content': content})
+    return msgs
+
+last_mtime = os.path.getmtime(filepath)
+while True:
+    time.sleep(0.3)
+    if not os.path.exists(filepath): break
+    cur_mtime = os.path.getmtime(filepath)
+    if cur_mtime > last_mtime:
+        messages = parse_markdown(filepath)
+        if messages and messages[-1]['role'] == 'user':
+            with open(filepath, 'a', encoding='utf-8') as f:
+                f.write('\n\n## Assistant:\n\n')
+                f.flush()
+                try:
+                    stream = client.chat.completions.create(model=model_name, messages=messages, stream=True)
+                    for chunk in stream:
+                        delta = chunk.choices[0].delta.content
+                        if delta: f.write(delta); f.flush()
+                    f.write('\n\n## User:\n\n')
+                    f.flush()
+                except Exception as e:
+                    f.write(f'\n[API Error: {e}]\n\n## User:\n\n')
+                    f.flush()
+        last_mtime = os.path.getmtime(filepath)
+" &
+    local daemon_pid=$!
+    trap 'kill "$daemon_pid" 2>/dev/null || true' EXIT INT TERM
+
+    "${nvim_cmd[@]}"
+}
+
+# ------------------------------------------------------------------------------
+# 3. CLI Handling
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal AI Assistant, Neovim Live Buffer & Local Execution CLI
+
+Usage:
+  $PROG_NAME <command> [arguments]
+
+Commands:
+  chat             Open a dynamic live-updating Neovim chat buffer
+  ask              Open scratchpad editor to formulate and stream a prompt
+  local            Launch local GPT4All interactive binary
+
+Examples:
+  $PROG_NAME chat
+  $PROG_NAME ask
+  echo "Explain Raft consensus" | $PROG_NAME ask
+EOF
+    exit 0
+}
+
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        chat)            start_nvim_chat_session ;;
+        ask)             scratchpad_ask ;;
+        local|gpt4all)   exec "${HOME}/gpt4all/bin/chat" ;;
+        *)               show_help ;;
+    esac
+}
+
+main "$@"
+

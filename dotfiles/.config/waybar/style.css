@@ -1,0 +1,102 @@
+* {
+  border: none;
+  border-radius: 0;
+  font-family: "JetBrains Mono", "Font Awesome 6 Free", monospace;
+  font-size: 12px;
+  min-height: 0;
+}
+
+window#waybar {
+  background-color: #222222;
+  border-bottom: 2px solid #1a1a1a;
+  color: #f8f8f2;
+}
+
+/* --- Workspaces --- */
+#workspaces button {
+  padding: 0 8px;
+  color: #6272a4;
+  background: transparent;
+}
+
+#workspaces button.focused {
+  color: #bd93f9;
+  border-bottom: 2px solid #bd93f9;
+}
+
+#workspaces button.urgent {
+  color: #ff5555;
+}
+
+/* --- Base pill styles for status items --- */
+#network,
+#cpu,
+#temperature,
+#memory,
+#pulseaudio,
+#backlight,
+#battery,
+#clock,
+#tray {
+  padding: 0 8px;
+  margin: 3px 2px;
+  border-radius: 4px;
+  background-color: #2a2a2a;
+  color: #f8f8f2;
+}
+
+/* --- Module Accent Colors --- */
+#network {
+  color: #8be9fd;
+}
+
+#cpu {
+  color: #50fa7b;
+}
+
+#temperature {
+  color: #f1fa8c;
+}
+
+#temperature.critical {
+  background-color: #ff5555;
+  color: #f8f8f2;
+}
+
+#memory {
+  color: #ff79c6;
+}
+
+#pulseaudio {
+  color: #8be9fd;
+}
+
+#backlight {
+  color: #f1fa8c;
+}
+
+#battery {
+  color: #50fa7b;
+}
+
+#battery.warning {
+  color: #ffb86c;
+}
+
+#battery.critical:not(.charging) {
+  background-color: #ff5555;
+  color: #f8f8f2;
+}
+
+#clock.date {
+  color: #bd93f9;
+}
+
+#clock.time {
+  color: #50fa7b;
+  font-weight: bold;
+}
+
+#tray {
+  background-color: transparent;
+}

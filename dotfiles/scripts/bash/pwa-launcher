@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# pwa-launcher: Universal Web Application & Ephemeral Profile Launcher
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="pwa-launcher"
+
+# ------------------------------------------------------------------------------
+# 1. Browser Discovery
+# ------------------------------------------------------------------------------
+probe_browser() {
+    BROWSER_BIN=""
+    for candidate in firefox firefox-bin librewolf chromium google-chrome; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            BROWSER_BIN="$candidate"
+            break
+        fi
+    done
+    [[ -z "$BROWSER_BIN" ]] && { printf "[ERROR] No compatible browser found.\n" >&2; exit 1; }
+}
+
+# ------------------------------------------------------------------------------
+# 2. Preset Registry
+# ------------------------------------------------------------------------------
+resolve_app_url() {
+    local app="$1"
+    case "$app" in
+        chatgpt)   echo "https://chat.openai.com" ;;
+        chess)     echo "https://www.chess.com/play" ;;
+        lichess)   echo "https://www.lichess.org" ;;
+        keep)      echo "https://keep.google.com" ;;
+        youtube)   echo "https://www.youtube.com" ;;
+        youchat)   echo "https://you.com/search?q=Hi&tbm=youchat" ;;
+        wiki)      echo "https://en.wikipedia.org" ;;
+        *)         echo "$app" ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# 3. Termux-to-TV VNC / noVNC Bridge
+# ------------------------------------------------------------------------------
+start_tv_bridge() {
+    command -v vncserver >/dev/null 2>&1 || { printf "[ERROR] 'vncserver' required.\n" >&2; exit 1; }
+    vncserver -kill :1 2>/dev/null || true
+
+    mkdir -p ~/.vnc
+    cat << 'EOF' > ~/.vnc/xstartup
+#!/bin/sh
+firefox &
+EOF
+    chmod +x ~/.vnc/xstartup
+    vncserver -localhost :1 -geometry 1280x720 -depth 24
+
+    if [[ ! -d "$HOME/noVNC" ]]; then
+        git clone https://github.com/novnc/noVNC.git "$HOME/noVNC"
+    fi
+
+    echo "================================================="
+    echo "TV Browser bridge active on: http://localhost:6080/vnc.html"
+    echo "================================================="
+    exec "$HOME/noVNC/utils/novnc_proxy" --vnc localhost:5901 --listen 6080
+}
+
+# ------------------------------------------------------------------------------
+# 4. Execution Engine
+# ------------------------------------------------------------------------------
+launch() {
+    local is_tmp=0
+    local target_app=""
+
+    while getopts ":th" opt; do
+        case "$opt" in
+            t) is_tmp=1 ;;
+            h) show_help ;;
+            \?) ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+
+    target_app="${1:-}"
+    [[ -z "$target_app" ]] && { show_help; exit 1; }
+
+    if [[ "$target_app" == "tv" ]]; then
+        start_tv_bridge
+        return 0
+    fi
+
+    local url
+    url=$(resolve_app_url "$target_app")
+
+    local browser_args=(
+        "--new-window"
+        "--disable-pinch"
+    )
+
+    if [[ "$BROWSER_BIN" =~ (firefox|librewolf) ]]; then
+        browser_args+=("--app=${url}")
+        if [[ $is_tmp -eq 1 ]]; then
+            local tmp_profile
+            tmp_profile=$(mktemp -d /tmp/browser_pwa_XXXXXX)
+            browser_args+=("--profile" "$tmp_profile" "--private-window")
+        fi
+    else
+        browser_args+=("--app=${url}")
+        if [[ $is_tmp -eq 1 ]]; then
+            local tmp_profile
+            tmp_profile=$(mktemp -d /tmp/browser_pwa_XXXXXX)
+            browser_args+=("--user-data-dir=${tmp_profile}" "--incognito")
+        fi
+    fi
+
+    shift || true
+    exec "$BROWSER_BIN" "${browser_args[@]}" "$@"
+}
+
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Web App Container & Ephemeral Profile Runner
+
+Usage:
+  $PROG_NAME [options] <app_preset | url>
+
+Options:
+  -t             Launch in disposable temporary profile (auto-purged on exit)
+  -h             Show this help message
+
+Presets:
+  chatgpt, chess, lichess, keep, youtube, youchat, wiki, tv
+
+Examples:
+  $PROG_NAME chatgpt
+  $PROG_NAME -t youtube
+  $PROG_NAME "https://news.ycombinator.com"
+EOF
+    exit 0
+}
+
+main() {
+    probe_browser
+    launch "$@"
+}
+
+main "$@"
+

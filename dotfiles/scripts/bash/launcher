@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+PATH(){
+    IFS=:
+    for i in $PATH; do find -L "$i" -maxdepth 1 -mindepth 1 -type f -executable -printf '%P\n' 2>/dev/null; done | sort -u
+}
+
+fzf < <(PATH) | xargs swaymsg exec 2>&1 >/dev/null

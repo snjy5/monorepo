@@ -1,0 +1,102 @@
+# ansible/roles/containers/tasks/main.yml
+---
+# ---------------------------------------------------------
+# APP DEPLOYMENT (Multi-Site Ready, Idempotent)
+# ---------------------------------------------------------
+- name: Ensure application directory exists
+  ansible.builtin.file:
+    path: "{{ app_base_dir }}"
+    state: directory
+    mode: '0755'
+
+# ---------------------------------------------------------
+# WEBSITE SOURCE
+# ---------------------------------------------------------
+- name: Check if website-src exists
+  ansible.builtin.stat:
+    path: "{{ app_base_dir }}/website-src"
+  register: website_src_stat
+
+- name: Check if website-src is a valid git repo
+  ansible.builtin.stat:
+    path: "{{ app_base_dir }}/website-src/.git"
+  register: website_src_git_stat
+
+- name: Remove website-src if present but not a valid git checkout
+  ansible.builtin.file:
+    path: "{{ app_base_dir }}/website-src"
+    state: absent
+  when: website_src_stat.stat.exists and not website_src_git_stat.stat.exists
+
+- name: Clone/update website repo
+  ansible.builtin.git:
+    repo: "{{ website_repo_url }}"
+    dest: "{{ app_base_dir }}/website-src"
+    version: "{{ website_repo_branch }}"
+    force: true
+  register: website_repo
+
+# ---------------------------------------------------------
+# DOCKER COMPOSE
+# ---------------------------------------------------------
+# build: policy correctly detects changes via Docker build cache
+# because website_build_context points to ./website-src (COPY invalidates cache)
+
+- name: Deploy docker-compose.yml from template
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ app_base_dir }}/docker-compose.yml"
+    mode: '0644'
+  register: compose_file
+
+- name: Deploy all services via Docker Compose
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_base_dir }}"
+    state: present
+    build: policy
+    recreate: auto
+    remove_orphans: true
+  register: compose_result
+
+# ---------------------------------------------------------
+# GITEA BOOTSTRAP
+# ---------------------------------------------------------
+- name: Wait for Gitea container to be running
+  ansible.builtin.command: >
+    docker inspect --format='{{ '{{' }}.State.Running{{ '}}' }}' gitea
+  register: gitea_running
+  until: gitea_running.stdout == "true"
+  retries: 10
+  delay: 5
+  changed_when: false
+
+- name: Check if Gitea admin user already exists
+  ansible.builtin.command: >
+    docker exec --user 1000 gitea gitea admin user list
+  register: gitea_user_list
+  changed_when: false
+  failed_when: false
+
+- name: Create Gitea admin user if none exists
+  ansible.builtin.command: >
+    docker exec --user 1000 gitea gitea admin user create
+    --username {{ gitea_admin_username }}
+    --password {{ gitea_admin_password }}
+    --email {{ gitea_admin_email }}
+    --admin
+  when: gitea_admin_username not in gitea_user_list.stdout
+  no_log: true
+
+# ---------------------------------------------------------
+# POST-DEPLOYMENT HOOKS
+# ---------------------------------------------------------
+- name: Reload Nginx after deployment changes
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded
+  when: compose_result.changed or compose_file.changed
+
+- name: Flush DNS cache
+  ansible.builtin.command: resolvectl flush-caches
+  changed_when: false
+  when: compose_result.changed or compose_file.changed

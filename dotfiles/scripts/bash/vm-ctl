@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# vm-ctl: Universal Parameterized QEMU Virtual Machine Orchestrator
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="vm-ctl"
+VM_STORE="${VM_STORAGE_PATH:-$HOME/ALL/vms}"
+
+log_info()  { printf "[INFO]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+# ------------------------------------------------------------------------------
+# 1. Hardware Virtualization Prober
+# ------------------------------------------------------------------------------
+probe_acceleration() {
+    ACCEL="tcg"
+    CPU_TYPE="qemu64"
+
+    if [[ -w "/dev/kvm" ]]; then
+        ACCEL="kvm"
+        CPU_TYPE="host"
+    elif [[ -e "/dev/kvm" ]] && id -nG | grep -qE "kvm|libvirt"; then
+        ACCEL="kvm"
+        CPU_TYPE="host"
+    else
+        log_info "KVM not accessible; running with software TCG emulation."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 2. VM Execution Orchestrator
+# ------------------------------------------------------------------------------
+launch_vm() {
+    local guest_type="$1" # android | windows | custom
+    shift || true
+
+    probe_acceleration
+
+    local mem="4G"
+    local cores
+    cores=$(nproc 2>/dev/null || echo 4)
+    local disk_img=""
+    local vga_dev="virtio"
+    local extra_opts=()
+
+    case "$guest_type" in
+        android)
+            mem="2G"
+            vga_dev="std"
+            disk_img="${VM_STORE}/android/android-hdd.img"
+            local share_dir="${VM_STORE}/android/share"
+            mkdir -p "$share_dir"
+            extra_opts+=(
+                "-netdev" "user,id=net0,hostfwd=tcp::5555-:5555"
+                "-device" "e1000,netdev=net0"
+                "-fsdev" "local,id=myfs,path=${share_dir},security_model=none"
+                "-device" "virtio-9p-pci,fsdev=myfs,mount_tag=hostshare"
+                "-display" "sdl"
+            )
+            ;;
+        windows)
+            mem="4G"
+            vga_dev="virtio"
+            disk_img="${VM_STORE}/windows/windows.qcow2"
+            extra_opts+=(
+                "-netdev" "user,id=net0"
+                "-device" "virtio-net-pci,netdev=net0"
+                "-usb" "-device" "usb-tablet"
+            )
+            ;;
+        custom)
+            disk_img="${1:-}"
+            [[ -z "$disk_img" ]] && { log_error "Disk image path required for custom VM."; return 1; }
+            ;;
+        *)
+            log_error "Unknown VM profile: $guest_type"
+            return 1
+            ;;
+    esac
+
+    [[ ! -f "$disk_img" ]] && { log_error "Virtual machine disk image '$disk_img' not found."; return 1; }
+
+    log_info "Launching $guest_type (RAM: $mem, Cores: $cores, Accel: $ACCEL)..."
+
+    local qemu_cmd=(
+        qemu-system-x86_64
+        "-m" "$mem"
+        "-smp" "$cores"
+        "-accel" "$ACCEL"
+        "-cpu" "$CPU_TYPE"
+        "-vga" "$vga_dev"
+        "-drive" "file=${disk_img},format=raw,if=virtio"
+    )
+
+    if [[ "$disk_img" =~ \.qcow2$ ]]; then
+        qemu_cmd[12]="-drive"
+        qemu_cmd[13]="file=${disk_img},format=qcow2,if=virtio"
+    fi
+
+    # Task priority adjustments
+    exec nice -n 5 ionice -c 2 -n 0 "${qemu_cmd[@]}" "${extra_opts[@]}" "$@"
+}
+
+# ------------------------------------------------------------------------------
+# 3. CLI Handling
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Parameterized QEMU Virtual Machine Orchestrator
+
+Usage:
+  $PROG_NAME <profile> [extra_qemu_options]
+
+Profiles:
+  android     Launches Android-x86 with ADB forwarding (port 5555) & 9p folder sharing
+  windows     Launches Windows guest with VirtIO acceleration
+  custom      Launches arbitrary disk image passed as next argument
+
+Examples:
+  $PROG_NAME android
+  $PROG_NAME windows
+  $PROG_NAME custom /path/to/test.qcow2
+EOF
+    exit 0
+}
+
+main() {
+    local target="${1:-}"
+    shift || true
+
+    case "$target" in
+        android|windows|custom)
+            launch_vm "$target" "$@"
+            ;;
+        *)
+            show_help
+            ;;
+    esac
+}
+
+main "$@"
+

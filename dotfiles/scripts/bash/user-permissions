@@ -1,0 +1,5 @@
+#!/bin/bash
+chown void:void /dev/dri/card* /dev/input/event* /dev/tty* /dev/dri/render*
+chown void:void /dev/snd/*
+chown void:void /sys/class/backlight/intel_backlight/brightness
+chown void:void /dev/video0

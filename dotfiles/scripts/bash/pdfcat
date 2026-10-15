@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec pdfgrep --cache --color=never --only-matching --regexp='.*' "$1"

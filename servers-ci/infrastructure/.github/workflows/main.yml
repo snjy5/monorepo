@@ -1,0 +1,70 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+env:
+  ANSIBLE_HOST_KEY_CHECKING: "False"
+  ANSIBLE_CONFIG: ansible.cfg
+  VAULT_PASSWORD: "${{ secrets.VAULT_PASSWORD }}"
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Ansible
+        run: sudo apt-get update && sudo apt-get install -y ansible
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          terraform_wrapper: false
+
+      - name: Install Galaxy dependencies
+        run: |
+          ansible-galaxy install -r ansible/requirements.yml
+
+      - name: Create Vault Password File
+        run: |
+          mkdir -p secrets
+          echo "$VAULT_PASSWORD" > secrets/vault
+          chmod 600 secrets/vault
+
+      - name: Configure SSH & Terraform
+        run: |
+          if [ ! -s secrets/vault ]; then
+            echo "::error::Vault password file is empty or missing!"
+            exit 1
+          fi
+          ansible-playbook \
+            -i ansible/inventory/local.ini \
+            --vault-password-file secrets/vault \
+            ansible/playbooks/orchestrate.yml
+
+      - name: Local Testing
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/local.ini \
+            --vault-password-file secrets/vault \
+            ansible/playbooks/playbook.yml
+
+      - name: Production Deploy
+        run: |
+          ansible-playbook \
+            -i ansible/inventory/production.ini \
+            --vault-password-file secrets/vault \
+            ansible/playbooks/playbook.yml
+
+      - name: Cleanup Vault File
+        if: always()
+        run: |
+          shred -u secrets/vault 2>/dev/null || true

@@ -1,0 +1,17 @@
+#!/bin/bash
+DISPLAY=:0 
+# Turn monitor off in 600 seconds = 10 min
+xset dpms 0 0 600
+# Disable screen saver blanking
+xset s off
+
+# for sway
+#if swaymsg -t get_outputs | grep -q '"power": true'
+#then
+#    swaymsg "output * dpms off" 
+#    sudo powersave
+#else
+#    swaymsg "output * dpms on" 
+#    sleep 2
+#    sudo internet
+#fi

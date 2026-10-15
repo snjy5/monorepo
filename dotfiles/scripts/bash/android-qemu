@@ -1,0 +1,24 @@
+#!/bin/bash
+
+memory="2G"
+accel="kvm"
+cpu="host"
+vga="std"
+root="${HOME}/ALL/android-os"
+file="${root}/android-hdd.img"
+
+opts=(
+    -m "$memory"
+    -accel "$accel"
+    -cpu "$cpu"
+    -drive file="${file},index=1",format=raw
+	-netdev user,id=net0,hostfwd=tcp::5555-:5555
+	-device e1000,netdev=net0
+	-fsdev local,id=myfs,path="${root}/share",security_model=none
+	-device virtio-9p-pci,fsdev=myfs,mount_tag=hostshare
+    -vga "$vga"
+	-display sdl
+    -smp "4"
+)
+
+exec qemu-system-x86_64 "${opts[@]}"

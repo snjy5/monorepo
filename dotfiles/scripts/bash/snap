@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. Require root privileges for btrfs snapshot manipulation
+if [[ "$(id -u)" -ne 0 ]]; then
+    printf "Error: %s must be run as root (or with sudo).\n" "$(basename "$0")" >&2
+    exit 1
+fi
+
+if ! command -v btrfs >/dev/null 2>&1; then
+    printf "Error: 'btrfs' command not found.\n" >&2
+    exit 1
+fi
+
+# 2. Configuration
+SNAPSHOT_DIR="/snapshots"
+RETENTION_COUNT=7   # Number of snapshots to keep per subvolume
+DATE_TAG="$(date '+%Y-%m-%d_%H-%M-%S')"
+
+# Helper: Check if a mount point or directory is on a Btrfs filesystem
+is_btrfs() {
+    local target="$1"
+    [[ -d "$target" ]] && [[ "$(stat -f -c %T "$target" 2>/dev/null)" == "btrfs" ]]
+}
+
+# Helper: Prune old snapshots, retaining only the latest N
+prune_snapshots() {
+    local snap_dir="$1"
+    local prefix="$2"
+    local keep="$3"
+
+    mapfile -t snaps < <(find "$snap_dir" -maxdepth 1 -mindepth 1 -name "${prefix}_*" -type d | sort)
+    local total="${#snaps[@]}"
+
+    if (( total > keep )); then
+        local to_delete=$(( total - keep ))
+        for (( i=0; i < to_delete; i++ )); do
+            printf "==> Pruning old snapshot: %s\n" "${snaps[$i]}"
+            btrfs subvolume delete "${snaps[$i]}"
+        done
+    fi
+}
+
+# Helper: Create a read-only snapshot
+take_snapshot() {
+    local src_path="$1"
+    local dest_dir="$2"
+    local label="$3"
+
+    if ! is_btrfs "$src_path"; then
+        printf "Warning: '%s' is not on a Btrfs filesystem. Skipping.\n" "$src_path"
+        return 0
+    fi
+
+    mkdir -p "$dest_dir"
+    local target_snap="${dest_dir}/${label}_${DATE_TAG}"
+
+    printf "==> Snapshotting [%s] -> [%s]...\n" "$src_path" "$target_snap"
+    btrfs subvolume snapshot -r "$src_path" "$target_snap"
+
+    # Maintain retention
+    prune_snapshots "$dest_dir" "$label" "$RETENTION_COUNT"
+}
+
+# ---------------------------------------------------------
+# Snapshot Execution
+# ---------------------------------------------------------
+mkdir -p "$SNAPSHOT_DIR"
+
+# 1. Root filesystem (/)
+take_snapshot "/" "$SNAPSHOT_DIR" "root"
+
+# 2. /home filesystem (if mounted on its own btrfs subvolume)
+if mountpoint -q /home 2>/dev/null && is_btrfs "/home"; then
+    take_snapshot "/home" "$SNAPSHOT_DIR" "home"
+fi
+
+# 3. Optional secondary storage (e.g. encrypted external SD card / drive)
+sdcard_mount="$(findmnt -nr -o TARGET -S LABEL=secure_storage 2>/dev/null || mount | awk '/secure_storage/ {print $3}' | head -n 1)"
+if [[ -n "$sdcard_mount" ]] && is_btrfs "$sdcard_mount"; then
+    sdcard_snap_dir="${sdcard_mount}/snapshots"
+    take_snapshot "$sdcard_mount" "$sdcard_snap_dir" "storage"
+fi
+
+printf "==> Snapshot operations completed successfully.\n"

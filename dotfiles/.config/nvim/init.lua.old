@@ -1,0 +1,156 @@
+-- Aliases
+local cmd = vim.cmd
+local g = vim.g
+local opt = vim.opt
+
+-- Misc
+cmd 'set t_Co=256'
+cmd 'noswapfile'
+cmd 'syntax off'
+cmd 'filetype off'
+cmd 'filetype plugin on'
+cmd 'filetype indent off'
+cmd 'set signcolumn=yes'
+cmd 'set shiftwidth=4 tabstop=4 softtabstop=4 expandtab noautoindent nosmartindent'
+--cmd 'autocmd FileType * set shiftwidth=4 tabstop=4 softtabstop=4 expandtab noautoindent nosmartindent'
+cmd ':imap jk <Esc>'
+cmd 'nnoremap Q :q<CR>'
+cmd 'nnoremap QQ :q!<CR>'
+
+-- Vim plug
+cmd 'source ~/.config/nvim/autoload/plug.vim'
+vim.cmd [[ call plug#begin()
+Plug 'nvim-treesitter/nvim-treesitter'
+Plug 'dense-analysis/ale'
+Plug 'morhetz/gruvbox'
+Plug 'sonph/onehalf', { 'rtp': 'vim' }
+call plug#end()
+]]
+
+-- Colorscheme
+cmd 'colorscheme github_dark_default'
+-- cmd 'colorscheme peachpuff'
+-- cmd 'colorscheme onehalfdark'
+-- cmd 'colorscheme slate'
+
+local lang = vim.bo.filetype
+local ts = require('nvim-treesitter.configs')
+
+ts.setup {
+    ensure_installed = lang,
+
+    highlight = {
+        enable = true,
+        use_languagetree = true
+    },
+
+    indent = {
+        enable = true,
+    },
+}
+
+-- Enable ALE
+g.ale_enabled = 1
+g.ale_lint_on_text_changed = 'never'
+g.ale_lint_on_insert_leave = 0
+g.ale_fix_on_save = 1
+
+-- Enable auto-completion with ALE
+g.ale_completion_enabled = 1
+
+-- Customize ALE's diagnostic display
+g.ale_sign_error = '✖'
+g.ale_sign_warning = '⚠'
+g.ale_sign_info = 'I:'
+
+-- Set the location list to display ALE diagnostics
+g.ale_set_loclist = 1
+g.ale_use_neovim_diagnostics_api = 1
+cmd 'set omnifunc=ale#completion#OmniFunc'
+
+-- More misc
+opt.wrap = true
+opt.secure = false
+opt.binary = true
+opt.number = false
+opt.cindent = false
+opt.hlsearch = true
+opt.termguicolors = true
+-- opt.relativenumber = true
+opt.laststatus = 0
+opt.showmode = false
+opt.ruler = false
+opt.showcmd = false
+opt.shortmess = "F"
+opt.history = 10000
+
+opt.shell = "/bin/bash"
+opt.clipboard = "unnamed,unnamedplus"
+opt.backspace = "indent,eol,start"
+opt.background = "dark"
+opt.background = "light"
+opt.path = "+**"
+opt.mouse = ""
+opt.guifont = "JetBrainsMono"
+opt.linespace = 0
+opt.cursorline = false
+opt.textwidth = 0
+
+g.netrw_banner=0 
+
+-- Preserve last position
+-- Return to last edit position when opening files (You want this!)
+vim.cmd[[ autocmd BufReadPost * if line("'\"") > 0 && line("'\"") <= line("$") | exe "normal! g`\"" | endif ]]
+
+-- Auto save
+-- vim.cmd[[
+-- augroup autoupdate
+-- autocmd!
+-- autocmd TextChanged,TextChangedI * silent! update
+-- augroup ENnoD]]
+
+-- Enable persistent undo
+cmd 'set undofile'
+
+-- Set the directory to store undo history files
+cmd 'set undodir=~/.cache'
+
+-- Map <F5> to run code
+function RunCurrentFile()
+
+    local out = vim.fn.system('make ' .. vim.fn.expand('%:r'))
+    if vim.v.shell_error ~= 0 then
+        print('Error: ' .. out)
+    else
+        local run_output = vim.fn.system('./' .. vim.fn.expand('%:r'))
+        print('Output: ' .. run_output)
+    end
+end
+
+vim.api.nvim_set_keymap('n', '<F5>', ':lua RunCurrentFile()<CR>', { noremap = true })
+
+
+-- Gruvbox colorscheme
+-- cmd 'colorscheme gruvbox'
+
+-- white colorscheme
+-- cmd 'colorscheme zellner'
+
+-- Override some colors
+-- cmd 'hi Normal guibg=#F4E8D7 guifg=#000000'
+--cmd 'hi Normal guibg=#000000 guifg=#FFFFFF'
+cmd 'hi Normal guibg=#000000 guifg=#AAAAAA'
+-- cmd 'hi Normal guifg=#c9d1d9 guibg=#0d1117'
+cmd 'hi NonText guifg=bg guibg=bg ctermfg=NONE ctermbg=NONE'
+cmd 'hi EndOfBuffer guibg=bg guifg=bg ctermfg=NONE ctermbg=NONE'
+cmd 'hi SignColumn guifg=bg guibg=bg ctermbg=NONE ctermfg=NONE'
+
+-- Ale colors
+cmd 'hi ALEErrorSign guifg=red guibg=none'
+cmd 'hi ALEStyleErrorSign guifg=red guibg=none'
+cmd 'hi ALESignColumnWithErrors guifg=red guibg=red'
+cmd 'hi ALEWarningSign guifg=red guibg=none'
+cmd 'hi ALEStyleWarningSign guifg=none guibg=none'
+cmd 'hi ALEInfoSign guifg=#666666 guibg=none'
+
+-- cmd 'autocmd FileType text set linespace=0 nowrap textwidth=0'

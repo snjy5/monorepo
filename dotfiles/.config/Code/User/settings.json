@@ -1,0 +1,16 @@
+{
+  "editor.fontSize": 11,
+  "editor.lineNumbers": "on",
+  "files.autoSave": "afterDelay",
+  "nix.enableLanguageServer": true,
+  "nix.serverPath": "nixd",
+  "workbench.editor.enablePreview": false,
+  "workbench.editor.enablePreviewFromQuickOpen": false,
+  "editor.minimap.enabled": false,
+  "[nix]": {
+    "editor.defaultFormatter": "jnoortheen.nix-ide"
+  },
+  "terminal.integrated.fontSize": 11,
+  "editor.wordWrap": "on",
+  "editor.formatOnPaste": true
+}

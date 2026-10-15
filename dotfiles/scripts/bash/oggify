@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+
+# Navigate to the music directory or exit if it fails
+music_directory = os.path.join(os.path.expanduser("~"), "music")
+os.chdir(music_directory)
+
+# Download music using yt-dlp with URLs from a file called "list"
+def download():
+    with open("list") as file:
+        urls = file.read().splitlines()
+
+    for url in urls:
+        process = subprocess.run(["yt-dlp", "-i", "--print", "title", url], capture_output=True, text=True)
+        title = process.stdout.strip()
+        subprocess.run(["yt-dlp", "--file-access-retries", "infinite", "-wf", "bestaudio[ext=m4a][ext!=webm]/best", url, "-o", f"{title}.m4a"])
+
+# Re-encode every audio file with audio codec other than ogg to ogg
+# Skip the "list" file to avoid re-encoding it
+def re_encode():
+    ffmpeg_options = [
+            '-y', '-hide_banner', '-nostdin', '-vn', '-sn', '-dn',
+            '-c:a', 'vorbis',
+            '-q:a', '1',
+            '-ar', '126000',
+            '-af', 'aresample=osr=126000:dither_method=none:dither_scale=7777777:precision=33:cheby=1:out_sample_rate=126000',
+            '-out_sample_rate', '126000',
+            '-b:a', '640k',
+            '-strict', 'experimental',
+            '-compression_level', '0',
+            '-osr', '126000',
+            ]
+
+    for root, _, files in os.walk(".", topdown=True):
+        for file in files:
+            if not file.endswith(".ogg") and file != "list":
+                input_path = os.path.join(root, file)
+                output_path = os.path.splitext(input_path)[0] + ".ogg"
+                subprocess.run(['ffmpeg', '-i', input_path] + ffmpeg_options + [output_path])
+
+def clean_files():
+    # Rename files to remove spaces, special characters, text inside braces and braces itself etc.
+    valid_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.- "
+    for root, _, files in os.walk(".", topdown=False):
+        for file in files:
+            if any(char not in valid_chars for char in file):
+                input_path = os.path.join(root, file)
+                file = "".join(char for char in file if char in valid_chars)
+                file = file.lower()
+                file = file.replace("-", "_")
+                file = file.replace(" ", "_")
+                output_path = os.path.join(root, file)
+                os.rename(input_path, output_path)
+
+# Only download music if the "list" file is not empty
+if os.path.isfile("list") and os.path.getsize("list") > 0:
+    download()
+else:
+    clean_files()
+
+# Only re-encode audio files if any codec other than ogg exists
+# Skip the "list" file to avoid re-encoding it
+if any(not file.endswith(".ogg") and file != "list" for _, _, files in os.walk(".", topdown=True) for file in files):
+    re_encode()

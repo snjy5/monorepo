@@ -1,0 +1,293 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# screen-rec: Universal, Wayland & X11 Screen & Audio Recording Application
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="screen-rec"
+LOCK_FILE="/tmp/${PROG_NAME}.pid"
+
+# Default Recording Parameters
+FPS=30
+CRF=28
+PRESET="veryfast"
+AUDIO_MODE="none"      # none | mic | desktop | both
+GEOMETRY=""            # Empty = full screen
+USE_HWACCEL=0
+VERBOSE=0
+
+log_info()  { [[ $VERBOSE -eq 1 ]] && printf "[INFO]  %s\n" "$*" >&2 || true; }
+log_warn()  { printf "[WARN]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+# ------------------------------------------------------------------------------
+# 1. Environment & Capability Probing
+# ------------------------------------------------------------------------------
+probe_environment() {
+    DISPLAY_PROTO="headless"
+    if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+        DISPLAY_PROTO="wayland"
+    elif [[ -n "${DISPLAY:-}" ]]; then
+        DISPLAY_PROTO="x11"
+    fi
+
+    # Output directory handling
+    SAVE_DIR="${XDG_VIDEOS_DIR:-$HOME/Recordings}"
+    mkdir -p "$SAVE_DIR"
+
+    # VAAPI Hardware Acceleration probe
+    if [[ -c "/dev/dri/renderD128" ]] && ffmpeg -encoders 2>/dev/null | grep -q "h264_vaapi"; then
+        HWACCEL_AVAILABLE=1
+    else
+        HWACCEL_AVAILABLE=0
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 2. Audio Pipeline Auto-Detection
+# ------------------------------------------------------------------------------
+probe_audio_sources() {
+    AUDIO_MIC_DEV="default"
+    AUDIO_MONITOR_DEV=""
+
+    if command -v pactl >/dev/null 2>&1; then
+        # Default microphone source
+        AUDIO_MIC_DEV=$(pactl get-default-source 2>/dev/null || pactl info 2>/dev/null | awk -F': ' '/Default Source:/ {print $2}')
+
+        # Default desktop output sink monitor
+        local def_sink
+        def_sink=$(pactl get-default-sink 2>/dev/null || pactl info 2>/dev/null | awk -F': ' '/Default Sink:/ {print $2}')
+        if [[ -n "$def_sink" ]]; then
+            AUDIO_MONITOR_DEV="${def_sink}.monitor"
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 3. Process Lifecycle Management
+# ------------------------------------------------------------------------------
+stop_existing_session() {
+    if [[ -f "$LOCK_FILE" ]]; then
+        local target_pid
+        target_pid=$(<"$LOCK_FILE")
+        if kill -0 "$target_pid" 2>/dev/null; then
+            printf "Stopping active recording (PID: %s)... " "$target_pid"
+            kill -SIGINT "$target_pid" 2>/dev/null || true
+            local count=0
+            while kill -0 "$target_pid" 2>/dev/null && (( count < 10 )); do
+                sleep 0.5
+                (( count++ ))
+            done
+            rm -f "$LOCK_FILE"
+            printf "Done.\n"
+            exit 0
+        else
+            rm -f "$LOCK_FILE"
+        fi
+    fi
+}
+
+cleanup() {
+    rm -f "$LOCK_FILE"
+    printf "\nRecording session terminated safely.\n"
+}
+
+# ------------------------------------------------------------------------------
+# 4. Recording Execution Engines
+# ------------------------------------------------------------------------------
+record_wayland() {
+    local outfile="$1"
+
+    if ! command -v wf-recorder >/dev/null 2>&1; then
+        log_error "'wf-recorder' is required for Wayland capture. Please install it."
+        exit 1
+    fi
+
+    local wf_opts=("-f" "$outfile" "-r" "$FPS")
+
+    # Geometry selection
+    if [[ -n "$GEOMETRY" ]]; then
+        wf_opts+=("-g" "$GEOMETRY")
+    fi
+
+    # Audio configurations
+    case "$AUDIO_MODE" in
+        mic)
+            wf_opts+=("-a" "$AUDIO_MIC_DEV")
+            ;;
+        desktop)
+            [[ -n "$AUDIO_MONITOR_DEV" ]] && wf_opts+=("-a" "$AUDIO_MONITOR_DEV")
+            ;;
+        both)
+            # Pulse/PipeWire loopback merge handled internally by wf-recorder if specified
+            wf_opts+=("-a" "$AUDIO_MIC_DEV")
+            ;;
+    esac
+
+    # Codec selection
+    if [[ $USE_HWACCEL -eq 1 && $HWACCEL_AVAILABLE -eq 1 ]]; then
+        wf_opts+=("-c" "h264_vaapi" "-d" "/dev/dri/renderD128")
+    else
+        wf_opts+=("-c" "libx264" "-p" "preset=$PRESET" "-p" "crf=$CRF")
+    fi
+
+    echo "$$" > "$LOCK_FILE"
+    trap cleanup EXIT INT TERM
+
+    printf "Recording to: %s\n" "$outfile"
+    printf "Press [Ctrl+C] or run 'screen-rec -q' to stop.\n"
+    exec wf-recorder "${wf_opts[@]}"
+}
+
+record_x11() {
+    local outfile="$1"
+
+    local x_display="${DISPLAY:-:0.0}"
+    local ffmpeg_args=(
+        "-loglevel" "warning"
+        "-stats"
+        "-f" "x11grab"
+        "-draw_mouse" "1"
+        "-framerate" "$FPS"
+    )
+
+    # Resolution handling
+    if [[ -n "$GEOMETRY" ]]; then
+        # Format expected: WxH+X,Y -> -video_size WxH -i :0.0+X,Y
+        local size offset
+        size="${GEOMETRY%+*}"
+        offset="${GEOMETRY#*+}"
+        ffmpeg_args+=("-video_size" "$size" "-i" "${x_display}+${offset}")
+    else
+        ffmpeg_args+=("-i" "$x_display")
+    fi
+
+    # Audio mapping
+    case "$AUDIO_MODE" in
+        mic)
+            ffmpeg_args+=("-f" "pulse" "-i" "$AUDIO_MIC_DEV")
+            ;;
+        desktop)
+            [[ -n "$AUDIO_MONITOR_DEV" ]] && ffmpeg_args+=("-f" "pulse" "-i" "$AUDIO_MONITOR_DEV")
+            ;;
+        both)
+            ffmpeg_args+=(
+                "-f" "pulse" "-i" "$AUDIO_MIC_DEV"
+                "-f" "pulse" "-i" "$AUDIO_MONITOR_DEV"
+                "-filter_complex" "amix=inputs=2:duration=first"
+            )
+            ;;
+    esac
+
+    # Encoding profile
+    if [[ $USE_HWACCEL -eq 1 && $HWACCEL_AVAILABLE -eq 1 ]]; then
+        ffmpeg_args+=(
+            "-vaapi_device" "/dev/dri/renderD128"
+            "-vf" "format=nv12,hwupload"
+            "-c:v" "h264_vaapi"
+            "-qp" "$CRF"
+        )
+    else
+        ffmpeg_args+=(
+            "-c:v" "libx264"
+            "-preset" "$PRESET"
+            "-tune" "zerolatency"
+            "-crf" "$CRF"
+            "-pix_fmt" "yuv420p"
+        )
+    fi
+
+    if [[ "$AUDIO_MODE" != "none" ]]; then
+        ffmpeg_args+=("-c:a" "aac" "-b:a" "192k")
+    fi
+
+    ffmpeg_args+=("$outfile")
+
+    echo "$$" > "$LOCK_FILE"
+    trap cleanup EXIT INT TERM
+
+    printf "Recording to: %s\n" "$outfile"
+    printf "Press [Ctrl+C] or run 'screen-rec -q' to stop.\n"
+    exec ffmpeg "${ffmpeg_args[@]}"
+}
+
+# ------------------------------------------------------------------------------
+# 5. CLI Handling & Entry Point
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Screen & Audio Recording Application
+
+Usage:
+  $PROG_NAME [options]
+
+Recording Controls:
+  -q             Quit / stop active recording session immediately
+  -m             Record with microphone input
+  -s             Record with desktop/system audio input
+  -b             Record both microphone and desktop audio
+  -a <WxH+X,Y>   Capture specific screen area (e.g. 1920x1080+0,0)
+  -f <fps>       Framerate (Default: 30)
+  -c             Enable hardware acceleration (VAAPI)
+  -p <preset>    CPU preset (ultrafast, veryfast, faster, medium)
+  -v             Verbose output
+  -h             Show this help message
+
+Examples:
+  $PROG_NAME -m                  # Full screen + microphone
+  $PROG_NAME -b -c               # Full screen + both audios + VAAPI acceleration
+  $PROG_NAME -a 1280x720+100,100 # Specific window or region
+  $PROG_NAME -q                  # Stop current session
+EOF
+    exit 0
+}
+
+main() {
+    probe_environment
+    probe_audio_sources
+
+    while getopts ":qmsba:f:cp:vh" opt; do
+        case "$opt" in
+            q) stop_existing_session ;;
+            m) AUDIO_MODE="mic" ;;
+            s) AUDIO_MODE="desktop" ;;
+            b) AUDIO_MODE="both" ;;
+            a) GEOMETRY="$OPTARG" ;;
+            f) FPS="$OPTARG" ;;
+            c) USE_HWACCEL=1 ;;
+            p) PRESET="$OPTARG" ;;
+            v) VERBOSE=1 ;;
+            h) show_help ;;
+            \?) log_error "Invalid option: -$OPTARG"; show_help ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+
+    # Pre-flight check: don't start duplicate concurrent recordings
+    if [[ -f "$LOCK_FILE" ]]; then
+        local pid
+        pid=$(<"$LOCK_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+            log_error "A recording is already running (PID: $pid). Use '$PROG_NAME -q' to stop it."
+            exit 1
+        fi
+    fi
+
+    local timestamp
+    timestamp=$(date '+%Y%m%d_%H%M%S')
+    local outfile="${SAVE_DIR}/rec_${timestamp}.mp4"
+
+    log_info "Protocol: $DISPLAY_PROTO, Audio: $AUDIO_MODE, Framerate: $FPS"
+
+    if [[ "$DISPLAY_PROTO" == "wayland" ]]; then
+        record_wayland "$outfile"
+    elif [[ "$DISPLAY_PROTO" == "x11" ]]; then
+        record_x11 "$outfile"
+    else
+        log_error "No active Wayland or X11 session detected for screen recording."
+        exit 1
+    fi
+}
+
+main "$@"
+

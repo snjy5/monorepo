@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+SW="$(basename "$0")"
+URL="${1}"
+
+die() {
+    echo "${SW}:" "${@}" && exit 1
+}
+
+[[ $# -eq 0 ]] && die "url not specified"
+
+utils=( curl pv )
+
+for i in "${utils[@]}"
+do
+    if ! command -v "$i" > /dev/null; then
+        die "$i" "not installed"
+    fi
+done
+
+# Use different methods to get FILENAME
+FILENAME="$(curl -H 'User-Agent: Mozilla/5.0' -sLI \
+    -w '%{url_effective}' "${URL}" | tail -1 | xargs basename)"
+
+if [[ -z "${FILENAME}" ]]
+then    
+    die "file is inaccessable"
+elif [[ -d "${FILENAME}" ]]
+then
+    die "cannot save to a directory"
+elif [[ -f "${FILENAME}" ]]
+then
+    echo "resume saving to ${PWD}/${FILENAME}"
+    FILEOFFSET="$(du -b "${FILENAME}" | awk '{print $1}')"
+    curl -H 'User-Agent: Mozilla/5.0' \
+        -C "${FILEOFFSET}" -SsL "${URL}" -o - | pv >> "${FILENAME}"
+
+else
+    echo "saving to ${PWD}/${FILENAME}"
+    curl -H 'User-Agent: Mozilla/5.0' -SsL "${URL}" -o - \
+        | pv > "${FILENAME}"
+
+fi

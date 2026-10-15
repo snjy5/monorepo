@@ -1,0 +1,59 @@
+---
+# STAGE 1: Local Orchestration & Infrastructure Provisioning
+- name: Provision Infrastructure
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../inventory/group_vars/all/vault.yml
+
+  tasks:
+    - name: Ensure .ssh directory exists on the CI runner
+      ansible.builtin.file:
+        path: ~/.ssh
+        state: directory
+        mode: '0700'
+
+    - name: Write SSH Private Key from Vault to disk
+      ansible.builtin.copy:
+        content: "{{ vault_ssh_private_key }}"
+        dest: ~/.ssh/id_ed25519_deploy
+        mode: '0600'
+
+    - name: Extract Public Key from Private Key for Terraform
+      ansible.builtin.shell:
+        cmd: ssh-keygen -y -f ~/.ssh/id_ed25519_deploy > ~/.ssh/id_ed25519_deploy.pub
+      changed_when: false
+
+    - name: Provision Infrastructure with Terraform
+      community.general.terraform:
+        project_path: "{{ playbook_dir }}/../../terraform"
+        state: present
+        force_init: true
+      environment:
+        AWS_ACCESS_KEY_ID: "{{ vault_aws_access_key_id }}"
+        AWS_SECRET_ACCESS_KEY: "{{ vault_aws_secret_access_key }}"
+      register: terraform_result
+
+    - name: Extract server IP from Terraform module outputs
+      ansible.builtin.set_fact:
+        server_ip: "{{ terraform_result.outputs.server_public_ip.value | default('') | trim }}"
+
+    - name: Debug - Show Terraform output
+      ansible.builtin.debug:
+        msg: "Server IP {{ server_ip }}"
+      when: server_ip != ""
+
+    - name: Add host to webservers group dynamically
+      ansible.builtin.add_host:
+        name: "{{ server_ip }}"
+        groups: webservers
+        ansible_user: admin
+        ansible_ssh_private_key_file: ~/.ssh/id_ed25519_deploy
+        ansible_python_interpreter: /usr/bin/python3
+      when: server_ip != ""
+
+    - name: Fail if no IP address found
+      ansible.builtin.fail:
+        msg: "No ip addresses found"
+      when: server_ip == ""

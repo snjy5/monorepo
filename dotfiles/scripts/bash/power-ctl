@@ -1,0 +1,452 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# power-ctl: Universal, Environment-Agnostic Power & Scaling Application
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="power-ctl"
+VERBOSE=0
+DRY_RUN=0
+
+log_info()  { [[ $VERBOSE -eq 1 ]] && printf "[INFO]  %s\n" "$*" >&2 || true; }
+log_warn()  { printf "[WARN]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+# ------------------------------------------------------------------------------
+# 1. Environment & Capability Auto-Detection Engine
+# ------------------------------------------------------------------------------
+probe_system() {
+    # 1.1 Operating Environment
+    IS_TERMUX=0
+    if [[ -n "${TERMUX_VERSION:-}" ]] || [[ "${PREFIX:-}" =~ com.termux ]]; then
+        IS_TERMUX=1
+        BIN_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}/bin"
+    else
+        BIN_PREFIX="/usr/bin"
+    fi
+
+    # 1.2 Init System Detection
+    INIT_SYSTEM="unknown"
+    if [[ $IS_TERMUX -eq 1 ]]; then
+        INIT_SYSTEM="termux"
+    elif [[ -d /run/systemd/system ]]; then
+        INIT_SYSTEM="systemd"
+    elif command -v sv >/dev/null 2>&1 && [[ -d /var/service ]]; then
+        INIT_SYSTEM="runit"
+    elif command -v rc-service >/dev/null 2>&1; then
+        INIT_SYSTEM="openrc"
+    fi
+    log_info "Init system detected: $INIT_SYSTEM"
+
+    # 1.3 Display Protocol Detection
+    DISPLAY_PROTO="headless"
+    if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+        DISPLAY_PROTO="wayland"
+    elif [[ -n "${DISPLAY:-}" ]]; then
+        DISPLAY_PROTO="x11"
+    fi
+    log_info "Display protocol: $DISPLAY_PROTO"
+
+    # 1.4 CPU Scaling Driver & Frequencies
+    CPU_POLICIES=(/sys/devices/system/cpu/cpufreq/policy[0-9]*)
+    if [[ ! -d "${CPU_POLICIES[0]:-}" ]]; then
+        CPU_POLICIES=(/sys/devices/system/cpu/cpu[0-9]*/cpufreq)
+    fi
+
+    HAS_CPUFREQ=0
+    HW_MIN_FREQ=0
+    HW_MAX_FREQ=0
+    AVAILABLE_GOVERNORS=""
+    if [[ -d "${CPU_POLICIES[0]:-}" ]]; then
+        HAS_CPUFREQ=1
+        HW_MIN_FREQ=$(<"${CPU_POLICIES[0]}/cpuinfo_min_freq" 2>/dev/null || echo 0)
+        HW_MAX_FREQ=$(<"${CPU_POLICIES[0]}/cpuinfo_max_freq" 2>/dev/null || echo 0)
+        AVAILABLE_GOVERNORS=$(<"${CPU_POLICIES[0]}/scaling_available_governors" 2>/dev/null || echo "")
+    fi
+    log_info "CPU Freq detected: Min=${HW_MIN_FREQ}kHz, Max=${HW_MAX_FREQ}kHz"
+
+    # 1.5 GPU Nodes
+    INTEL_GPU_DIR=""
+    for card in /sys/class/drm/card[0-9]*; do
+        if [[ -d "$card/gt/gt0" ]]; then
+            INTEL_GPU_DIR="$card/gt/gt0"
+            break
+        elif [[ -f "$card/gt_cur_freq_mhz" ]]; then
+            INTEL_GPU_DIR="$card"
+            break
+        fi
+    done
+
+    # 1.6 Backlight Controller
+    BACKLIGHT_DIR=""
+    for bl in /sys/class/backlight/*; do
+        if [[ -d "$bl" && -f "$bl/brightness" ]]; then
+            BACKLIGHT_DIR="$bl"
+            break
+        fi
+    done
+
+    # 1.7 Power Supply / Battery
+    BATTERY_DIR=""
+    for bat in /sys/class/power_supply/BAT* /sys/class/power_supply/battery; do
+        if [[ -d "$bat" ]]; then
+            BATTERY_DIR="$bat"
+            break
+        fi
+    done
+}
+
+# ------------------------------------------------------------------------------
+# 2. Execution & Permission Handlers
+# ------------------------------------------------------------------------------
+elevate_if_needed() {
+    if [[ $EUID -ne 0 ]]; then
+        if [[ $IS_TERMUX -eq 1 ]]; then
+            if command -v tsu >/dev/null 2>&1; then
+                exec tsu "$0" "$@"
+            else
+                log_error "Root access required. Please install 'tsu' or run as root."
+                exit 1
+            fi
+        else
+            if command -v sudo >/dev/null 2>&1; then
+                exec sudo "$0" "$@"
+            elif command -v doas >/dev/null 2>&1; then
+                exec doas "$0" "$@"
+            else
+                log_error "Root privileges required and neither sudo nor doas is available."
+                exit 1
+            fi
+        fi
+    fi
+}
+
+safe_write() {
+    local val="$1"
+    local dest="$2"
+    if [[ $DRY_RUN -eq 1 ]]; then
+        printf "[DRY-RUN] echo '%s' > %s\n" "$val" "$dest"
+        return 0
+    fi
+    if [[ -w "$dest" ]]; then
+        printf "%s" "$val" > "$dest" 2>/dev/null || true
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 3. CPU Core Scaling (Adaptive Proportional Profiling)
+# ------------------------------------------------------------------------------
+apply_cpu_settings() {
+    local target_gov="$1"
+    local pct_min="$2"   # 0 to 100
+    local pct_max="$3"   # 0 to 100
+    local epb_val="$4"   # 0 (performance) to 15 (powersave)
+    local boost_val="$5" # 1 or 0
+
+    [[ $HAS_CPUFREQ -eq 0 ]] && { log_warn "No cpufreq sysfs nodes available on this kernel/arch."; return 0; }
+
+    elevate_if_needed "$@"
+
+    local calc_min=$(( HW_MIN_FREQ + ( (HW_MAX_FREQ - HW_MIN_FREQ) * pct_min / 100 ) ))
+    local calc_max=$(( HW_MIN_FREQ + ( (HW_MAX_FREQ - HW_MIN_FREQ) * pct_max / 100 ) ))
+
+    # Validate governor against hardware capability
+    if [[ -n "$AVAILABLE_GOVERNORS" && ! " $AVAILABLE_GOVERNORS " =~ " $target_gov " ]]; then
+        log_warn "Governor '$target_gov' unsupported. Falling back to active default."
+        target_gov=$(awk '{print $1}' <<< "$AVAILABLE_GOVERNORS")
+    fi
+
+    for policy in "${CPU_POLICIES[@]}"; do
+        [[ -d "$policy" ]] || continue
+        safe_write "$target_gov" "$policy/scaling_governor"
+        safe_write "$calc_min"   "$policy/scaling_min_freq"
+        safe_write "$calc_max"   "$policy/scaling_max_freq"
+        safe_write "$boost_val"  "$policy/boost"
+    done
+
+    # Turbo/Boost switches (Intel and AMD sysfs paths)
+    safe_write "$boost_val" "/sys/devices/system/cpu/cpufreq/boost"
+    safe_write "$(( boost_val == 0 ? 1 : 0 ))" "/sys/devices/system/cpu/intel_pstate/no_turbo"
+
+    # Energy Performance Bias (Intel EPB)
+    for epb in $(find -P /sys/devices/system/cpu/ -name 'energy_perf_bias' 2>/dev/null); do
+        safe_write "$epb_val" "$epb"
+    done
+
+    printf "Applied Profile: Governor=%s, Min=%d kHz, Max=%d kHz, Boost=%s\n" \
+        "$target_gov" "$calc_min" "$calc_max" "$boost_val"
+}
+
+set_profile() {
+    local profile="${1:-}"
+    case "$profile" in
+        max|performance)
+            apply_cpu_settings "performance" 100 100 0 1
+            safe_write "performance" "/sys/module/pcie_aspm/parameters/policy"
+            set_gpu_frequency 100
+            ;;
+        balanced|conservative)
+            apply_cpu_settings "conservative" 0 80 6 0
+            safe_write "default" "/sys/module/pcie_aspm/parameters/policy"
+            set_gpu_frequency 60
+            ;;
+        save|powersave)
+            apply_cpu_settings "powersave" 0 40 15 0
+            safe_write "powersupersave" "/sys/module/pcie_aspm/parameters/policy"
+            set_gpu_frequency 20
+            # Audio power save
+            safe_write 1 "/sys/module/snd_hda_intel/parameters/power_save"
+            safe_write Y "/sys/module/snd_hda_intel/parameters/power_save_controller"
+            ;;
+        ultra-low)
+            apply_cpu_settings "powersave" 0 0 15 0
+            set_gpu_frequency 0
+            ;;
+        *)
+            log_error "Unknown profile: $profile"
+            echo "Available profiles: max | balanced | save | ultra-low"
+            return 1
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# 4. GPU Engine (Intel / AMD / Sysfs)
+# ------------------------------------------------------------------------------
+set_gpu_frequency() {
+    local pct="${1:-}" # 0 to 100
+    [[ -z "$INTEL_GPU_DIR" ]] && return 0
+    elevate_if_needed "$@"
+
+    local min_f max_f
+    min_f=$(<"$INTEL_GPU_DIR/gt_RPn_freq_mhz" 2>/dev/null || echo 100)
+    max_f=$(<"$INTEL_GPU_DIR/gt_RP0_freq_mhz" 2>/dev/null || echo 1150)
+
+    local target=$(( min_f + ( (max_f - min_f) * pct / 100 ) ))
+    safe_write "$target" "$INTEL_GPU_DIR/gt_min_freq_mhz"
+    safe_write "$target" "$INTEL_GPU_DIR/gt_max_freq_mhz"
+    safe_write "$target" "$INTEL_GPU_DIR/gt_boost_freq_mhz"
+    log_info "GPU Target frequency set to $target MHz"
+}
+
+# ------------------------------------------------------------------------------
+# 5. Display, Brightness & Gamma Abstraction
+# ------------------------------------------------------------------------------
+control_backlight() {
+    local action="${1:-}"
+    [[ -z "$BACKLIGHT_DIR" ]] && { log_warn "No backlight hardware detected."; return 1; }
+
+    local cur max step
+    cur=$(<"$BACKLIGHT_DIR/brightness")
+    max=$(<"$BACKLIGHT_DIR/max_brightness")
+
+    step=$(( max / 20 )) # Dynamic 5% step based on hardware capability
+    (( step < 1 )) && step=1
+
+    case "$action" in
+        +) (( cur += step )) ;;
+        -) (( cur -= step )) ;;
+        [0-9]*) cur="$action" ;;
+        *) log_error "Usage: power-ctl bright {+|-|<val>}"; return 1 ;;
+    esac
+
+    (( cur < 1 )) && cur=1
+    (( cur > max )) && cur=max
+
+    elevate_if_needed "$@"
+    safe_write "$cur" "$BACKLIGHT_DIR/brightness"
+    printf "Brightness: %d / %d (%d%%)\n" "$cur" "$max" "$(( cur * 100 / max ))"
+}
+
+control_dpms() {
+    local state="$1" # on | off
+    case "$DISPLAY_PROTO" in
+        wayland)
+            if command -v swaymsg >/dev/null 2>&1; then
+                swaymsg "output * dpms $state"
+            elif command -v hyprctl >/dev/null 2>&1; then
+                hyprctl dispatch dpms "$state"
+            elif command -v wlopm >/dev/null 2>&1; then
+                wlopm --"$state" "*"
+            else
+                log_warn "No compatible Wayland IPC tool (swaymsg, hyprctl, wlopm) found."
+            fi
+            ;;
+        x11)
+            export DISPLAY="${DISPLAY:-:0}"
+            if command -v xset >/dev/null 2>&1; then
+                xset dpms force "$state"
+            fi
+            ;;
+        *)
+            log_warn "Headless or unsupported environment; DPMS skipped."
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# 6. Lifecycle & Power Transitions (Init-Agnostic)
+# ------------------------------------------------------------------------------
+system_power_action() {
+    local action="$1" # suspend | hibernate | poweroff | reboot
+    elevate_if_needed "$@"
+
+    # Nvidia sleep hook handling
+    local nvidia_node="/proc/driver/nvidia/suspend"
+    if [[ -f "$nvidia_node" && "$action" =~ (suspend|hibernate) ]]; then
+        safe_write "$action" "$nvidia_node"
+    fi
+
+    # Dispatch via detected init system
+    case "$INIT_SYSTEM" in
+        systemd)
+            systemctl "$action"
+            ;;
+        runit)
+            case "$action" in
+                poweroff) poweroff ;;
+                reboot)   reboot ;;
+                suspend)  echo "mem" > /sys/power/state ;;
+                hibernate) echo "disk" > /sys/power/state ;;
+            esac
+            ;;
+        openrc)
+            case "$action" in
+                poweroff) rc-service shutdown stop ;;
+                reboot)   rc-service reboot restart ;;
+                *) echo "$action" > /sys/power/state ;;
+            esac
+            ;;
+        termux)
+            log_warn "Direct sleep/poweroff unsupported in unrooted Termux."
+            ;;
+        *)
+            # POSIX Fallback via direct sysfs
+            case "$action" in
+                poweroff) /sbin/poweroff || init 0 ;;
+                reboot)   /sbin/reboot   || init 6 ;;
+                suspend)  echo "mem" > /sys/power/state ;;
+                hibernate) echo "disk" > /sys/power/state ;;
+            esac
+            ;;
+    esac
+
+    # Resume Nvidia if applicable
+    if [[ -f "$nvidia_node" && "$action" =~ (suspend|hibernate) ]]; then
+        safe_write "resume" "$nvidia_node"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 7. Telemetry & Monitoring
+# ------------------------------------------------------------------------------
+show_telemetry() {
+    printf "====================================================================\n"
+    printf " %s System Power Telemetry\n" "$PROG_NAME"
+    printf "====================================================================\n"
+    printf "%-12s: %s\n" "Init" "$INIT_SYSTEM"
+    printf "%-12s: %s\n" "Display" "$DISPLAY_PROTO"
+
+    if [[ $HAS_CPUFREQ -eq 1 ]]; then
+        printf "\nCPU Policies:\n"
+        printf "  %-8s %-12s %-12s\n" "Core" "Frequency" "Governor"
+        for p in "${CPU_POLICIES[@]}"; do
+            [[ -d "$p" ]] || continue
+            local cur_f gov
+            cur_f=$(<"$p/scaling_cur_freq" 2>/dev/null || echo 0)
+            gov=$(<"$p/scaling_governor" 2>/dev/null || echo "N/A")
+            printf "  %-8s %-12s %-12s\n" "$(basename "$p")" "$(( cur_f / 1000 )) MHz" "$gov"
+        done
+    fi
+
+    if [[ -n "$INTEL_GPU_DIR" ]]; then
+        local cur_gpu
+        cur_gpu=$(<"$INTEL_GPU_DIR/gt_cur_freq_mhz" 2>/dev/null || echo "N/A")
+        printf "\nGPU Clock   : %s MHz\n" "$cur_gpu"
+    fi
+
+    if [[ -n "$BATTERY_DIR" && -f "$BATTERY_DIR/capacity" ]]; then
+        local cap stat
+        cap=$(<"$BATTERY_DIR/capacity")
+        stat=$(<"$BATTERY_DIR/status" 2>/dev/null || echo "Unknown")
+        printf "Battery     : %s%% (%s)\n" "$cap" "$stat"
+    fi
+    printf "====================================================================\n"
+}
+
+# ------------------------------------------------------------------------------
+# 8. Command-Line Interface (getopts)
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Hardware Power & Scaling Utility
+
+Usage:
+  $PROG_NAME [options] <command> [arguments]
+
+Commands:
+  profile   <max|balanced|save|ultra-low> Set system-wide power profile
+  gpu       <0-100>                       Set GPU clock performance percentage
+  bright    <+|-|value>                   Adjust backlight percentage/value
+  dpms      <on|off>                      Toggle display power state
+  action    <suspend|hibernate|poweroff|reboot> Execute power state transition
+  status                                  Display hardware power telemetry
+
+Options:
+  -v        Enable verbose output
+  -n        Dry-run mode (display sysfs mutations without writing)
+  -h        Display this help message
+
+EOF
+    exit 0
+}
+
+main() {
+    probe_system
+
+    while getopts ":vnh" opt; do
+        case "$opt" in
+            v) VERBOSE=1 ;;
+            n) DRY_RUN=1 ;;
+            h) show_help ;;
+            \?) log_error "Invalid option: -$OPTARG"; show_help ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+
+    local cmd="${1:-status}"
+    shift || true
+
+    case "$cmd" in
+        profile)
+            [[ -z "${1:-}" ]] && { log_error "Profile name required."; exit 1; }
+            set_profile "$1"
+            ;;
+        gpu)
+            [[ -z "${1:-}" ]] && { log_error "GPU percentage (0-100) required."; exit 1; }
+            set_gpu_frequency "$1"
+            ;;
+        bright)
+            [[ -z "${1:-}" ]] && { log_error "Backlight parameter (+|-|<val>) required."; exit 1; }
+            control_backlight "$1"
+            ;;
+        dpms)
+            [[ -z "${1:-}" ]] && { log_error "DPMS state (on|off) required."; exit 1; }
+            control_dpms "$1"
+            ;;
+        action)
+            [[ -z "${1:-}" ]] && { log_error "Power action required."; exit 1; }
+            system_power_action "$1"
+            ;;
+        status|top)
+            show_telemetry
+            ;;
+        *)
+            log_error "Unknown command: $cmd"
+            show_help
+            ;;
+    esac
+}
+
+main "$@"
+

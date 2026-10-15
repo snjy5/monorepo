@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+SEARCH_KEYWORD="$(echo "$@" | tr ' ' '_')"
+
+links -enable-cookies 1 -save-cookies 1 -max-cookie-age 0 -save-url-history 1 -force-html -no-g \
+	"https://wikiless.org/wiki/${SEARCH_KEYWORD}?lang=en"

@@ -1,0 +1,5 @@
+#!/bin/bash
+for i in ${PATH//:/ }
+do 
+    find $i -printf '%f\n' 2>/dev/null
+done | bemenu --fork --tf=#FFFFFF --hf=#FFFFFF --hb=#4285F4 -p'>' -i  | /bin/bash

@@ -1,0 +1,49 @@
+#!/bin/bash
+# Remount everything
+mount -a
+
+# Remount sysfs as rw
+mount none /sys -t sysfs -o remount,rw
+
+# Overclock cpu
+for i in /sys/devices/system/cpu/*/cpufreq/scaling_governor; do
+    echo performance > $i
+done
+
+for i in /sys/devices/system/cpu/cpu*/power/energy_perf_bias; do
+    echo 0 > $i
+done
+
+for i in /sys/devices/system/cpu/cpu*/cpufreq/scaling_min_freq; do
+    echo 3400000 > $i
+done
+
+for i in /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq; do
+    echo 3400000 > $i
+done
+
+# Set scheduler (bfq)
+modprobe bfq
+for i in /sys/block/*/queue/scheduler; do echo bfq > $i; done
+
+# Turn off disk cache
+blkid | awk -F ':' '{print $1}' | xargs -n1 hdparm -W 0
+
+# Overclock intel gpu
+#intel_gpu_frequency -m
+#chmod -R 1777 /sys/class/drm/card0/gt*
+#for i in /sys/class/drm/card0/gt*; do echo 1050 > $i; done
+
+# Persist nvidia gpu settings
+nvidia-persistenced
+
+# ZRAM
+modprobe zram
+echo lz4 > /sys/class/block/zram0/comp_algorithm
+echo 5G > /sys/block/zram0/disksize
+echo 0 > /sys/block/zram0/mem_limit
+/sbin/mkswap /dev/zram0
+/sbin/swapon -p 32767 /dev/zram0
+
+# Start wiregurd vpn
+#wg-quick up wg0

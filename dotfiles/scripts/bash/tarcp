@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+sw=$(basename "$0")
+dir="${1}"
+dest="${2}"
+tmp="${PWD}/.tarcp-tmp"
+
+usage() {
+    printf "%s\n" "Usage: ${sw} <directory> <destination>" && exit 1
+}
+
+[[ "${#}" -eq 0 ]] && usage
+
+for arg in "${@}"
+do
+    case "$arg" in
+        --help|-h) usage;;
+    esac
+done
+
+if [[ ! -e "${dir}" ]]; then
+    echo "error ${dir} does not exist"
+    exit 1
+fi
+
+if [[ "${dir}" == "${dest}" ]]; then
+    echo "cannot copy to itself"
+    exit 1
+fi
+
+pri() {
+    nice -n 0 ionice -c 2 -n 0 taskset -c 0-7 "${@}"
+}
+
+if [[ -d "${1}" ]]; then
+    mkdir -p "${dest}"
+    pri tar cf - "${dir}" | pri tar -C "${dest}" -vipxf - --strip-components=1
+elif [[ -e "${1}" ]]; then
+    mkdir -p "${tmp}"
+    pri tar cf - "${dir}" | pri tar -C "${tmp}" -vipxf - --xattrs-include='*.*' --numeric-owner
+    mv "${tmp}/${dir}" "./${dest}"
+    rm -rf "${tmp}"
+fi

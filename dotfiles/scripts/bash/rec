@@ -1,0 +1,30 @@
+#!/bin/bash
+
+LOCKDIR="$HOME/termux_mic.lock"
+
+# Try to acquire lock. If directory already exists, exit immediately.
+if ! mkdir "$LOCKDIR" 2>/dev/null; then
+    echo "A recording is already in progress. Exiting."
+    exit 0
+fi
+
+# Cleanup: release the lock AND tell Termux to stop recording on exit/Ctrl+C
+cleanup() {
+    echo -e "\nStopping..."
+    termux-microphone-record -q
+    rm -rf "$LOCKDIR"
+}
+
+trap cleanup EXIT
+
+dir="$HOME/voice"
+mkdir -p "$dir"
+file="$dir/$(date +%s).opus"
+
+# Fire the detached process
+termux-microphone-record -l 0 -e opus -r 48000 -b 2000 -c 2 -f "$file"
+
+echo "Recording... Press [Ctrl+C] to stop."
+
+# Block the terminal indefinitely
+tail -f /dev/null

@@ -1,0 +1,354 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# desktop-ctl: Universal Display, Capture, Input & Launcher Controller
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="desktop-ctl"
+VERBOSE=0
+DRY_RUN=0
+
+log_info()  { [[ $VERBOSE -eq 1 ]] && printf "[INFO]  %s\n" "$*" >&2 || true; }
+log_warn()  { printf "[WARN]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+# ------------------------------------------------------------------------------
+# 1. Environment & Capability Auto-Detection Engine
+# ------------------------------------------------------------------------------
+probe_environment() {
+    DISPLAY_PROTO="headless"
+    if [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+        DISPLAY_PROTO="wayland"
+    elif [[ -n "${DISPLAY:-}" ]]; then
+        DISPLAY_PROTO="x11"
+    fi
+    log_info "Protocol: $DISPLAY_PROTO"
+
+    # Detect Active Window Manager / Compositor
+    WM_TYPE="unknown"
+    if [[ "$DISPLAY_PROTO" == "wayland" ]]; then
+        if command -v swaymsg >/dev/null 2>&1 && swaymsg -t get_version >/dev/null 2>&1; then
+            WM_TYPE="sway"
+        elif command -v hyprctl >/dev/null 2>&1 && hyprctl version >/dev/null 2>&1; then
+            WM_TYPE="hyprland"
+        fi
+    elif [[ "$DISPLAY_PROTO" == "x11" ]]; then
+        if command -v i3-msg >/dev/null 2>&1 && i3-msg -t get_version >/dev/null 2>&1; then
+            WM_TYPE="i3"
+        fi
+    fi
+    log_info "Compositor/WM: $WM_TYPE"
+
+    # Default directory paths
+    CAPTURE_DIR="${XDG_PICTURES_DIR:-$HOME/Pictures}/Capture"
+    WALLPAPER_DIR="${WALLPAPERS_PATH:-$HOME/ALL/wallpapers}"
+}
+
+# ------------------------------------------------------------------------------
+# 2. Screenshot Engine (Wayland & X11)
+# ------------------------------------------------------------------------------
+take_screenshot() {
+    local target_mode="${1:-full}" # full | area | window
+    mkdir -p "$CAPTURE_DIR"
+    local timestamp outfile
+    timestamp=$(date '+%Y%m%d-%H%M%S-%N')
+    outfile="${CAPTURE_DIR}/${timestamp}.png"
+
+    case "$DISPLAY_PROTO" in
+        wayland)
+            if ! command -v grim >/dev/null 2>&1; then
+                log_error "'grim' is required for screenshots on Wayland."
+                return 1
+            fi
+            if [[ "$target_mode" == "area" && -x "$(command -v slurp 2>/dev/null)" ]]; then
+                grim -g "$(slurp)" "$outfile"
+            else
+                grim "$outfile"
+            fi
+            ;;
+        x11)
+            export DISPLAY="${DISPLAY:-:0}"
+            if command -v maim >/dev/null 2>&1; then
+                if [[ "$target_mode" == "area" ]]; then
+                    maim -s "$outfile"
+                else
+                    maim "$outfile"
+                fi
+            elif command -v ffmpeg >/dev/null 2>&1; then
+                ffmpeg -y -loglevel quiet -f x11grab -draw_mouse 1 -i "$DISPLAY" \
+                    -vframes 1 -q:v 0 -compression_level 0 -update 1 "$outfile"
+            else
+                log_error "Neither 'maim' nor 'ffmpeg' found for X11 capture."
+                return 1
+            fi
+            ;;
+        *)
+            log_error "No active graphical session detected for capture."
+            return 1
+            ;;
+    esac
+
+    printf "%s\n" "$outfile"
+
+    # Optional quick preview
+    if command -v imv >/dev/null 2>&1; then
+        imv "$outfile" >/dev/null 2>&1 &
+    elif command -v feh >/dev/null 2>&1; then
+        timeout 3 feh "$outfile" >/dev/null 2>&1 || true
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 3. Virtual Input Engine (Mouse, Key Simulation & Keep-Alive)
+# ------------------------------------------------------------------------------
+send_mouse_command() {
+    local action="$1"
+    shift || true
+
+    case "$DISPLAY_PROTO" in
+        x11)
+            command -v xdotool >/dev/null 2>&1 || { log_error "'xdotool' required on X11."; return 1; }
+            export DISPLAY="${DISPLAY:-:0}"
+            case "$action" in
+                click)       xdotool click --clearmodifiers "${1:-1}" ;;
+                move_rel)    xdotool mousemove_relative -- "$1" "$2" ;;
+                move_abs)    xdotool mousemove "$1" "$2" ;;
+                down)        xdotool mousedown "${1:-1}" ;;
+                up)          xdotool mouseup "${1:-1}" ;;
+                key)         xdotool key "$1" ;;
+                center)
+                    xdotool getwindowfocus getwindowgeometry --shell \
+                        | awk -F= '/X=|Y=|WIDTH=|HEIGHT=/ {print $2}' \
+                        | paste -sd' ' - \
+                        | awk '{print $1 + $3 / 2, $2 + $4 / 2}' \
+                        | xargs xdotool mousemove
+                    ;;
+                *) log_error "Unknown mouse action: $action"; return 1 ;;
+            esac
+            ;;
+        wayland)
+            command -v ydotool >/dev/null 2>&1 || { log_error "'ydotool' required on Wayland."; return 1; }
+            case "$action" in
+                click)    ydotool click 0xC0 ;; # Left button click
+                move_rel) ydotool mousemove -x "$1" -y "$2" ;;
+                key)      ydotool key "$1" ;;
+                *) log_error "Action '$action' not fully mapped on ydotool Wayland."; return 1 ;;
+            esac
+            ;;
+        *)
+            log_error "No graphical environment for input synthesis."
+            return 1
+            ;;
+    esac
+}
+
+keep_awake_loop() {
+    local interval="${1:-5}"
+    printf "Simulating input every %ds to prevent idle timeout. [Ctrl+C] to stop.\n" "$interval"
+    while true; do
+        send_mouse_command click 1 2>/dev/null || true
+        sleep "$interval"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# 4. Workspace & Application Launcher Engine
+# ------------------------------------------------------------------------------
+launch_app() {
+    local target_ws="${1:-}"
+    shift || true
+    local app_cmd="$*"
+
+    if [[ -z "$app_cmd" ]]; then
+        # Interactive selection if no binary passed
+        local menu_bin=""
+        if [[ "$DISPLAY_PROTO" == "wayland" ]]; then
+            menu_bin=$(command -v bemenu || command -v wofi || command -v rofi || true)
+        else
+            menu_bin=$(command -v dmenu || command -v rofi || true)
+        fi
+
+        if [[ -n "$menu_bin" ]]; then
+            IFS=: read -ra dirs <<< "$PATH"
+            app_cmd=$(find "${dirs[@]}" -maxdepth 1 -type f -executable -printf '%f\n' 2>/dev/null \
+                | sort -u \
+                | "$menu_bin" || true)
+        else
+            app_cmd=$(find "${PATH//:/ }" -maxdepth 1 -type f -executable -printf '%f\n' 2>/dev/null \
+                | sort -u \
+                | fzf || true)
+        fi
+    fi
+
+    [[ -z "$app_cmd" ]] && return 0
+
+    # Route through active compositor IPC if target workspace specified
+    case "$WM_TYPE" in
+        sway)
+            if [[ -n "$target_ws" ]]; then
+                swaymsg "workspace $target_ws; exec $app_cmd"
+            else
+                swaymsg exec "$app_cmd"
+            fi
+            ;;
+        i3)
+            if [[ -n "$target_ws" ]]; then
+                i3-msg "workspace $target_ws; exec --no-startup-id $app_cmd"
+            else
+                i3-msg "exec --no-startup-id $app_cmd"
+            fi
+            ;;
+        hyprland)
+            if [[ -n "$target_ws" ]]; then
+                hyprctl dispatch exec "[workspace $target_ws] $app_cmd"
+            else
+                hyprctl dispatch exec "$app_cmd"
+            fi
+            ;;
+        *)
+            nohup "$app_cmd" >/dev/null 2>&1 &
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# 5. Display Gamma & Night Light
+# ------------------------------------------------------------------------------
+set_gamma() {
+    local temp="${1:-3500}"
+    pkill -2 gammastep 2>/dev/null || true
+    pkill -2 wlsunset 2>/dev/null || true
+
+    if [[ "$temp" == "reset" || "$temp" == "0" ]]; then
+        if command -v gammastep >/dev/null 2>&1; then
+            gammastep -x 2>/dev/null || true
+        fi
+        log_info "Gamma reset to default."
+        return 0
+    fi
+
+    if command -v gammastep >/dev/null 2>&1; then
+        nohup gammastep -O "$temp" >/dev/null 2>&1 &
+    elif command -v wlsunset >/dev/null 2>&1 && [[ "$DISPLAY_PROTO" == "wayland" ]]; then
+        nohup wlsunset -t "$temp" >/dev/null 2>&1 &
+    else
+        log_warn "Neither 'gammastep' nor 'wlsunset' found on system."
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 6. Wallpaper Engine
+# ------------------------------------------------------------------------------
+set_wallpaper() {
+    local target_path="${1:-}"
+    if [[ -z "$target_path" && -d "$WALLPAPER_DIR" ]]; then
+        target_path=$(find "$WALLPAPER_DIR" -type f \( -name "*.jpg" -o -name "*.png" -o -name "*.jpeg" \) 2>/dev/null | shuf -n1 || true)
+    fi
+
+    [[ -z "$target_path" || ! -f "$target_path" ]] && { log_error "No valid wallpaper file found."; return 1; }
+
+    printf "Setting wallpaper: %s\n" "$target_path"
+
+    if [[ "$DISPLAY_PROTO" == "wayland" ]]; then
+        if command -v swaybg >/dev/null 2>&1; then
+            pkill swaybg 2>/dev/null || true
+            nohup swaybg -i "$target_path" -m fill >/dev/null 2>&1 &
+        elif command -v wbg >/dev/null 2>&1; then
+            pkill wbg 2>/dev/null || true
+            nohup wbg "$target_path" >/dev/null 2>&1 &
+        fi
+    elif [[ "$DISPLAY_PROTO" == "x11" ]]; then
+        if command -v feh >/dev/null 2>&1; then
+            feh --bg-fill "$target_path"
+        elif command -v xwallpaper >/dev/null 2>&1; then
+            xwallpaper --zoom "$target_path"
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 7. CLI Router (getopts)
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Display, Desktop & Input Management Utility
+
+Usage:
+  $PROG_NAME [options] <command> [arguments]
+
+Commands:
+  shot      [full|area]                 Capture screen (Wayland: grim, X11: maim/ffmpeg)
+  awake     [interval_sec]              Keep system awake by periodic input polling
+  mouse     <click|move_rel|center|key> Dispatch virtual input command
+  launch    [-w workspace] [cmd]        Launch application or open dynamic menu
+  gamma     <temp_k|reset>              Set display temperature (gammastep/wlsunset)
+  wall      [image_path]                Set wallpaper (Wayland: swaybg, X11: feh)
+
+Options:
+  -v        Enable verbose diagnostics
+  -n        Dry-run mode
+  -h        Show this help message
+
+Examples:
+  $PROG_NAME shot area                  # Capture selection
+  $PROG_NAME awake 10                   # Prevent sleep via 10-second pulses
+  $PROG_NAME mouse click 1              # Simulate left click
+  $PROG_NAME launch -w 2 firefox        # Launch Firefox directly in workspace 2
+  $PROG_NAME gamma 3000                 # Set warm night light
+  $PROG_NAME wall                       # Pick random wallpaper from directory
+EOF
+    exit 0
+}
+
+main() {
+    probe_environment
+
+    while getopts ":vnh" opt; do
+        case "$opt" in
+            v) VERBOSE=1 ;;
+            n) DRY_RUN=1 ;;
+            h) show_help ;;
+            \?) log_error "Invalid flag: -$OPTARG"; show_help ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+
+    local cmd="${1:-shot}"
+    shift || true
+
+    case "$cmd" in
+        shot|capture)
+            take_screenshot "${1:-full}"
+            ;;
+        awake)
+            keep_awake_loop "${1:-5}"
+            ;;
+        mouse)
+            send_mouse_command "$@"
+            ;;
+        launch)
+            local target_ws=""
+            while getopts ":w:" l_opt; do
+                case "$l_opt" in
+                    w) target_ws="$OPTARG" ;;
+                    *) ;;
+                esac
+            done
+            shift $((OPTIND - 1)) || true
+            launch_app "$target_ws" "$@"
+            ;;
+        gamma)
+            set_gamma "${1:-3500}"
+            ;;
+        wall|wallpaper)
+            set_wallpaper "${1:-}"
+            ;;
+        *)
+            log_error "Unknown command: $cmd"
+            show_help
+            ;;
+    esac
+}
+
+main "$@"
+

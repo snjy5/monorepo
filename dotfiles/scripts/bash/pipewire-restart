@@ -1,0 +1,14 @@
+#!/usr/bin/bash
+sleep 5
+lock=/tmp/pipewire_pulse_wireplumber
+[[ -f $lock ]] && exit 1
+touch $lock
+trap "/usr/bin/rm -f $lock" ERR INT TERM EXIT
+#conf_dir=$HOME/.config/pipewire
+if ! pgrep pipewire; then
+    pipewire & disown #--config="${conf_dir}/pipewire.conf" & disown
+    sleep 1
+    pipewire-pulse & disown #--config="${conf_dir}/pipewire-pulse.conf" & disown
+    sleep 1
+    wireplumber & disown
+fi

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+make "${1%.*}" >/dev/null
+"./${1%.*}"

@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. Output directory setup (respects XDG pictures or defaults to ~/Pictures/Screenshots)
+SAVE_DIR="${PICTURES_DIR:-${HOME}/Pictures/Screenshots}"
+mkdir -p "$SAVE_DIR"
+
+TIMESTAMP="$(date +'%Y-%m-%d_%H-%M-%S')"
+FILE="${SAVE_DIR}/screenshot_${TIMESTAMP}.png"
+
+# Optional argument support (e.g. `capture /custom/path/out.png`)
+if [[ $# -ge 1 ]]; then
+    FILE="$1"
+    mkdir -p "$(dirname "$FILE")"
+fi
+
+# 2. Capture screenshot across different environments
+captured=0
+
+# Wayland native tools (grim)
+if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v grim >/dev/null 2>&1; then
+    grim "$FILE"
+    captured=1
+
+# macOS native screencapture
+elif [[ "$(uname)" == "Darwin" ]] && command -v screencapture >/dev/null 2>&1; then
+    screencapture -x "$FILE"
+    captured=1
+
+# X11 with maim / scrot (faster, lightweight alternatives)
+elif [[ -n "${DISPLAY:-}" ]] && command -v maim >/dev/null 2>&1; then
+    maim -m 1 "$FILE"
+    captured=1
+elif [[ -n "${DISPLAY:-}" ]] && command -v scrot >/dev/null 2>&1; then
+    scrot -z "$FILE"
+    captured=1
+
+# X11 fallback using ffmpeg (x11grab)
+elif [[ -n "${DISPLAY:-}" ]] && command -v ffmpeg >/dev/null 2>&1; then
+    ffmpeg -y -loglevel error \
+        -f x11grab -draw_mouse 1 -i "$DISPLAY" \
+        -vframes 1 -update 1 "$FILE"
+    captured=1
+fi
+
+if (( captured == 0 )); then
+    printf "Error: No suitable screen capture tool found (grim, maim, scrot, ffmpeg, or screencapture).\n" >&2
+    exit 1
+fi
+
+printf "Saved screenshot to: %s\n" "$FILE"
+
+# 3. Copy to clipboard if utility exists (optional convenience)
+if command -v wl-copy >/dev/null 2>&1 && [[ -n "${WAYLAND_DISPLAY:-}" ]]; then
+    wl-copy < "$FILE"
+elif command -v xclip >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+    xclip -selection clipboard -t image/png -i "$FILE"
+fi
+
+# 4. Desktop Notification (optional)
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send -a "Screenshot" -i "$FILE" "Captured" "$FILE"
+fi
+
+# 5. Image Preview (optional non-blocking preview with feh)
+if command -v feh >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+    timeout 2 feh -. "$FILE" 2>/dev/null || true
+fi

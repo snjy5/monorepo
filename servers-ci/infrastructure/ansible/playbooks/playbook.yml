@@ -1,0 +1,13 @@
+# ansible/playbooks/playbook.yml
+---
+- name: Configure Server and Deploy Applications
+  hosts: webservers
+  become: true
+
+  roles:
+    - role: common_handlers
+    - role: common
+    - role: security
+    - role: geerlingguy.docker
+    - role: nginx
+    - role: containers

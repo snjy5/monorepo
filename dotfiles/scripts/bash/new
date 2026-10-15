@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [OPTIONS] [DIRECTORY]
+
+Print the most recently modified file(s) in a directory.
+
+Options:
+  -n, --count NUM   Number of newest items to show (default: 1)
+  -a, --all         Include hidden files/directories
+  -f, --files-only  Only check regular files (ignore directories)
+  -h, --help        Show this help message
+EOF
+    exit 0
+}
+
+COUNT=1
+INCLUDE_HIDDEN=0
+FILES_ONLY=0
+TARGET_DIR="."
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            usage
+            ;;
+        -n|--count)
+            COUNT="$2"
+            shift 2
+            ;;
+        -a|--all)
+            INCLUDE_HIDDEN=1
+            shift
+            ;;
+        -f|--files-only)
+            FILES_ONLY=1
+            shift
+            ;;
+        -*)
+            printf "Error: Unknown option '%s'\n" "$1" >&2
+            exit 1
+            ;;
+        *)
+            TARGET_DIR="$1"
+            shift
+            ;;
+    esac
+done
+
+if [[ ! -d "$TARGET_DIR" ]]; then
+    printf "Error: Directory '%s' does not exist.\n" "$TARGET_DIR" >&2
+    exit 1
+fi
+
+# Find options: inspect immediate children only (-mindepth 1 -maxdepth 1)
+find_args=("$TARGET_DIR" -mindepth 1 -maxdepth 1)
+
+if (( INCLUDE_HIDDEN == 0 )); then
+    find_args+=( ! -name '.*' )
+fi
+
+if (( FILES_ONLY == 1 )); then
+    find_args+=( -type f )
+fi
+
+# Strategy 1: GNU find (-printf %T@) — fastest and cleanest on Linux/Termux
+if find "$TARGET_DIR" -maxdepth 0 -printf "" 2>/dev/null; then
+    find "${find_args[@]}" -printf '%T@\t%p\n' \
+        | sort -k1,1 -nr \
+        | head -n "$COUNT" \
+        | cut -f2-
+
+# Strategy 2: BSD/macOS stat fallback
+elif stat -f "%m %N" "$TARGET_DIR" >/dev/null 2>&1; then
+    find "${find_args[@]}" -exec stat -f "%m %N" {} + \
+        | sort -k1,1 -nr \
+        | head -n "$COUNT" \
+        | cut -d' ' -f2-
+
+# Strategy 3: POSIX fallback (ls -dt)
+else
+    # shellcheck disable=SC2012
+    if (( INCLUDE_HIDDEN == 1 )); then
+        ls -dt "$TARGET_DIR"/* "$TARGET_DIR"/.* 2>/dev/null | head -n "$COUNT"
+    else
+        ls -dt "$TARGET_DIR"/* 2>/dev/null | head -n "$COUNT"
+    fi
+fi

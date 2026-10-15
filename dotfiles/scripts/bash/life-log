@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# life-log: Universal Habit, Nutrition, Pomodoro & Sleep Timer Suite
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="life-log"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/life-log"
+mkdir -p "$DATA_DIR"
+DB_PATH="${DATA_DIR}/life_data.db"
+
+log_info()  { printf "[INFO]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+# ------------------------------------------------------------------------------
+# 1. Database Initialization
+# ------------------------------------------------------------------------------
+init_db() {
+    sqlite3 "$DB_PATH" <<'EOF'
+CREATE TABLE IF NOT EXISTS food_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_date TEXT NOT NULL,
+    description TEXT NOT NULL,
+    protein REAL DEFAULT 0,
+    calories REAL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS habit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_date TEXT NOT NULL,
+    habit TEXT NOT NULL,
+    hours REAL DEFAULT 0,
+    notes TEXT DEFAULT ''
+);
+EOF
+}
+
+# ------------------------------------------------------------------------------
+# 2. Nutrition & Food Logging
+# ------------------------------------------------------------------------------
+log_food() {
+    init_db
+    local today
+    today=$(date +%Y-%m-%d)
+
+    if [[ "${1:-}" == "--show" ]]; then
+        sqlite3 -header -column "$DB_PATH" "
+        SELECT description, protein, calories FROM food_log WHERE log_date = '$today'
+        UNION ALL
+        SELECT '--- TOTAL ---', printf('%.1f g', SUM(protein)), printf('%.1f kcal', SUM(calories))
+        FROM food_log WHERE log_date = '$today';"
+        return 0
+    fi
+
+    printf "Logging nutrition for %s\n" "$today"
+    read -rp "Description: " desc
+    read -rp "Protein (g): " protein
+    read -rp "Calories (kcal): " calories
+
+    sqlite3 "$DB_PATH" "INSERT INTO food_log (log_date, description, protein, calories) VALUES ('$today', '${desc//\'/\'\'}', ${protein:-0}, ${calories:-0});"
+    printf "Logged: %s (%.1fg protein, %.1fkcal)\n" "$desc" "${protein:-0}" "${calories:-0}"
+}
+
+# ------------------------------------------------------------------------------
+# 3. Habit Tracking
+# ------------------------------------------------------------------------------
+log_habit() {
+    init_db
+    local today
+    today=$(date +%Y-%m-%d)
+
+    if [[ "${1:-}" == "--show" ]]; then
+        sqlite3 -header -column "$DB_PATH" "
+        SELECT habit, hours, notes FROM habit_log WHERE log_date = '$today';"
+        return 0
+    fi
+
+    printf "Logging habit for %s\n" "$today"
+    read -rp "Habit name: " habit
+    read -rp "Duration (hours): " hours
+    read -rp "Notes: " notes
+
+    sqlite3 "$DB_PATH" "INSERT INTO habit_log (log_date, habit, hours, notes) VALUES ('$today', '${habit//\'/\'\'}', ${hours:-0}, '${notes//\'/\'\'}');"
+    printf "Logged habit: %s (%.2f hrs)\n" "$habit" "${hours:-0}"
+}
+
+# ------------------------------------------------------------------------------
+# 4. Timer & Sleep Alarm Engine
+# ------------------------------------------------------------------------------
+run_timer() {
+    local minutes="${1:-30}"
+    local seconds=$(( minutes * 60 ))
+    trap 'printf "\033[?25h\n"; exit 0' INT TERM
+
+    printf "\033[?25l"
+    while (( seconds >= 0 )); do
+        printf "\rPomodoro Timer: %02d:%02d " "$(( seconds / 60 ))" "$(( seconds % 60 ))"
+        sleep 1
+        (( seconds-- ))
+    done
+    printf "\033[?25h\n"
+
+    # Play completion sound if available
+    command -v mpv >/dev/null 2>&1 && mpv --no-video --loop=2 "${HOME}/Music/alarm.ogg" 2>/dev/null || true
+}
+
+run_alarm() {
+    local target_time="${1:-}"
+    [[ -z "$target_time" ]] && { log_error "Target time format required (e.g., '07:30' or 'tomorrow 6am')."; return 1; }
+
+    local alarm_epoch
+    alarm_epoch=$(date -d "$target_time" +%s 2>/dev/null || true)
+    [[ -z "$alarm_epoch" ]] && { log_error "Invalid time format: $target_time"; return 1; }
+
+    local now
+    now=$(date +%s)
+    local diff=$(( alarm_epoch - now ))
+
+    (( diff <= 0 )) && { log_error "Target time must be in the future."; return 1; }
+
+    log_info "Sleeping for $(( diff / 3600 ))h $(( (diff % 3600) / 60 ))m until $target_time..."
+    sleep "$diff"
+    printf "\aWake up!\n"
+    command -v mpv >/dev/null 2>&1 && mpv --no-video "${HOME}/Music/alarm.ogg" 2>/dev/null || true
+}
+
+# ------------------------------------------------------------------------------
+# 5. CLI Handling
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Nutrition, Habit Tracking & Time Engine
+
+Usage:
+  $PROG_NAME <command> [arguments]
+
+Commands:
+  food        [--show]           Log or display daily calories & protein
+  habit       [--show]           Log or display daily habits & hours
+  timer       [minutes]          Start a countdown terminal pomodoro
+  alarm       <time_string>      Set sleep alarm for specific target time
+
+Examples:
+  $PROG_NAME food
+  $PROG_NAME food --show
+  $PROG_NAME timer 25
+  $PROG_NAME alarm "07:30"
+EOF
+    exit 0
+}
+
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        food)            log_food "$@" ;;
+        habit)           log_habit "$@" ;;
+        timer)           run_timer "${1:-30}" ;;
+        alarm)           run_alarm "$@" ;;
+        *)               show_help ;;
+    esac
+}
+
+main "$@"
+

@@ -1,0 +1,5 @@
+#!/bin/sh
+# killtree all user processes
+pkill -2 X
+sleep 3
+pkill -9 -u void

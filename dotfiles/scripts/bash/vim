@@ -1,0 +1,11 @@
+#!/usr/bin/bash
+VIMCONFIG=$HOME/.config/vim
+export VIMRUNTIME=$VIMCONFIG
+
+options=( 
+  -u NONE
+  -U NONE
+  -u "$VIMCONFIG/defaults.vim" 
+)
+
+exec /usr/bin/vim "${options[@]}" "$@"

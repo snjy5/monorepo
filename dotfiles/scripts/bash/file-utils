@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# file-utils: Universal File Exploration, Deduplication, Reference & OCR CLI
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="file-utils"
+
+log_info()  { printf "[INFO]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+# ------------------------------------------------------------------------------
+# 1. Notes Browser & Interactive Search
+# ------------------------------------------------------------------------------
+browse_notes() {
+    local notes_dir="${NOTES_PATH:-$HOME/Notes}"
+    mkdir -p "$notes_dir"
+
+    python3 -c "
+import os, sys, subprocess
+from pathlib import Path
+
+notes_dir = Path('$notes_dir')
+editor = os.getenv('EDITOR', 'nvim')
+
+def get_notes():
+    return sorted([f for f in notes_dir.rglob('*') if f.is_file() and not any(p.startswith('.') for p in f.parts)],
+                  key=lambda x: x.stat().st_mtime, reverse=True)
+
+query = ''
+while True:
+    os.system('clear')
+    notes = get_notes()
+    if query:
+        notes = [f for f in notes if query.lower() in str(f).lower() or query.lower() in f.read_text(errors='ignore').lower()]
+    
+    print('=== NOTES BROWSER: ' + str(notes_dir) + ' ===')
+    for i, n in enumerate(notes[:15], 1):
+        print(f'[{i}] {n.relative_to(notes_dir)}')
+    print('-'*50)
+    print('[/num] open | [query] search | [enter] reset | [q] quit')
+    choice = input('> ').strip()
+    if choice == 'q': break
+    elif choice == '': query = ''
+    elif choice.startswith('/') and choice[1:].isdigit():
+        idx = int(choice[1:]) - 1
+        if 0 <= idx < len(notes):
+            subprocess.run([editor, str(notes[idx])])
+    else: query = choice
+"
+}
+
+# ------------------------------------------------------------------------------
+# 2. Fast Streaming Copy & Deduplication
+# ------------------------------------------------------------------------------
+find_latest_file() {
+    local target="${1:-$PWD}"
+    find "$target" -maxdepth 1 ! -name ".*" -printf '%T@ %p\n' 2>/dev/null | sort -k1 -nr | head -n1 | cut -d' ' -f2-
+}
+
+fast_tar_copy() {
+    local src="${1:-}"
+    local dest="${2:-}"
+    [[ -z "$src" || -z "$dest" ]] && { log_error "Usage: file-utils tarcp <src> <dest>"; return 1; }
+
+    mkdir -p "$dest"
+    nice -n 0 ionice -c 2 -n 0 tar -cf - -C "$src" . | tar -C "$dest" -xpf -
+    printf "Copied %s -> %s\n" "$src" "$dest"
+}
+
+# ------------------------------------------------------------------------------
+# 3. Reference, Scraping & Cheat Sheet Engine
+# ------------------------------------------------------------------------------
+lookup_cheat() {
+    local query="${1:-}"
+    curl -s "https://cht.sh/${query}" | "${PAGER:-cat}"
+}
+
+locate_package_command() {
+    local cmd="${1:-}"
+    [[ -z "$cmd" ]] && { log_error "Command name required."; return 1; }
+    curl -s "https://command-not-found.com/${cmd}" | grep -EA 1 'apt-get|pacman -S|apk add|dnf install|brew' | sed 's/<[^>]*>//g'
+}
+
+paste_to_0x0() {
+    local target="${1:-}"
+    if [[ -z "$target" ]]; then
+        curl -F "file=@-;filename=.txt" "https://0x0.st"
+    else
+        curl -F "file=@${target};filename=.txt" "https://0x0.st"
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 4. Process Tree Termination
+# ------------------------------------------------------------------------------
+kill_process_tree() {
+    local target_pid="${1:-}"
+    [[ -z "$target_pid" ]] && { log_error "PID required."; return 1; }
+
+    local pids
+    pids=$(pstree -p "$target_pid" 2>/dev/null | grep -o '([0-9]\+)' | tr -d '()' | sort -nr || echo "$target_pid")
+    for p in $pids; do
+        kill -9 "$p" 2>/dev/null || true
+    done
+    printf "Process tree for PID %s terminated.\n" "$target_pid"
+}
+
+# ------------------------------------------------------------------------------
+# 5. CLI Handling
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal File Exploration, Search, Cheat & Process Maintenance CLI
+
+Usage:
+  $PROG_NAME <command> [arguments]
+
+Commands:
+  notes                           Interactive full-text notes search and navigator
+  new         [dir]               Find most recently modified file in directory
+  tarcp       <src> <dest>        High-performance tar-streaming directory copy
+  cheat       <query>             Fetch syntax and cheat sheets from cht.sh
+  what        <command>           Find which package provides a missing command
+  paste       [file]              Upload file or stdin to 0x0.st pastebin
+  killtree    <pid>               Kill process and all descendant subprocesses
+  matrix                          Terminal digital rain display
+
+Examples:
+  $PROG_NAME notes
+  $PROG_NAME cheat "tar extract"
+  $PROG_NAME what htop
+  $PROG_NAME paste /var/log/syslog
+EOF
+    exit 0
+}
+
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        notes|n)         browse_notes ;;
+        new)             find_latest_file "$@" ;;
+        tarcp)           fast_tar_copy "$@" ;;
+        cheat|cht)       lookup_cheat "$*" ;;
+        what)            locate_package_command "$@" ;;
+        paste|haste)     paste_to_0x0 "$@" ;;
+        killtree)        kill_process_tree "$@" ;;
+        matrix)          tr -c '[:digit:]' ' ' < /dev/urandom | dd cbs="$(tput cols)" bs=1 conv=unblock 2>/dev/null | GREP_COLORS="mt=1;32" grep --color "[^ ]" ;;
+        *)               show_help ;;
+    esac
+}
+
+main "$@"
+

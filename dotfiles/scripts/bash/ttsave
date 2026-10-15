@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+n=$(find . -maxdepth 1 -name 'voice.*.wav' | sort -n | tail -1 | grep -o '[0-9]*') || n="0"
+file="voice.$((n+1)).wav"
+
+if [[ $# -eq 0 ]]; then
+    edge-tts --voice "en-US-JennyNeural" \
+        --volume "+100%" --rate "+10%" \
+        -t </dev/stdin > "$file"
+else
+    edge-tts --voice "en-US-JennyNeural" \
+        --volume "+100%" --rate "+10%" \
+        -t "$(printf -- "%s" "${@}")" > "$file"
+fi
+
+echo "$file"

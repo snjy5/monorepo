@@ -1,0 +1,42 @@
+#!/bin/bash
+exec 2> $HOME/x11.log
+exec 1> $HOME/x11.log
+binary="dbus-run-session startplasma-x11"
+
+vars=(
+GALLIUM_DRIVER=zink
+MESA_GL_VERSION_OVERRIDE=4.3
+DISPLAY=:1
+MESA_LOADER_DRIVER_OVERRIDE=zink
+)
+
+for i in "${vars[@]}"; do
+	export $i
+done
+
+count=0
+while true; do
+	if (pgrep termux-x11 || pgrep virgl_test_server_android); then
+		pkill -2 termux-x11
+		pkill -2 virgl_test_server_android
+		pkill -2 $binary
+		pkill -2 dbus
+
+		if [[ $count -ge 10 ]]; then
+			pkill -15 termux-x11
+			pkill -15 virgl_test_server_android
+			pkill -15 $binary
+			pkill -15 dbus
+		fi
+	else
+		break
+	fi
+
+	count=$((count + 1))
+done
+
+dbus-daemon --session --fork
+termux-x11 :1 & disown
+virgl_test_server & disown
+sleep 3
+eval ${vars[@]} $binary & disown

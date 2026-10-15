@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+firefox -new-window --disable-pinch --app="https://you.com/search?q=Hi&tbm=youchat"

@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+    printf "Usage: %s <command>\n" "$(basename "$0")" >&2
+    exit 1
+fi
+
+cmd="$1"
+url="https://command-not-found.com/${cmd}"
+
+# 1. Fetch page using curl or wget (avoids requiring the `links` text browser)
+fetch_html() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL --compressed "$url" 2>/dev/null || true
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO- "$url" 2>/dev/null || true
+    elif command -v links >/dev/null 2>&1; then
+        links -dump "$url" 2>/dev/null || true
+    else
+        printf "Error: Neither curl, wget, nor links is installed.\n" >&2
+        exit 1
+    fi
+}
+
+raw_content="$(fetch_html)"
+
+if [[ -z "$raw_content" ]]; then
+    printf "Error: Could not retrieve info for '%s'. Check your network connection.\n" "$cmd" >&2
+    exit 1
+fi
+
+# 2. Package manager lookup specifications: "Prefix|Display Label"
+managers=(
+    "apt-get install|Debian/Ubuntu"
+    "apt install|Debian/Ubuntu"
+    "pacman -S|Arch Linux"
+    "apk add|Alpine Linux"
+    "dnf install|Fedora"
+    "yum install|CentOS / RHEL"
+    "nix-env -iA|NixOS"
+    "brew install|macOS (Homebrew)"
+    "pkg install|Termux / FreeBSD"
+    "zypper install|openSUSE"
+)
+
+found_any=0
+
+# Clean tags and normalize HTML/text into standard line breaks
+cleaned_text="$(printf "\%s\n" "$raw_content" | sed 's/<[^>]*>/ /g; s/&nbsp;/ /g')"
+
+print_entry() {
+    local pattern="$1"
+    local label="$2"
+
+    # Extract the matched install command line
+    local install_cmd
+    install_cmd="$(printf "\%s\n" "$cleaned_text" \
+        | grep -E "(sudo )?${pattern}" \
+        | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
+        | head -n 1 || true)"
+
+    if [[ -n "$install_cmd" ]]; then
+        printf "\033[1;34m==> %s\033[0m\n    %s\n\n" "$label" "$install_cmd"
+        found_any=1
+    fi
+}
+
+printf "\nLooking up install packages for command: \033[1m%s\033[0m\n\n" "$cmd"
+
+for item in "${managers[@]}"; do
+    pkg_pattern="${item%%|*}"
+    distro_label="${item##*|}"
+    print_entry "$pkg_pattern" "$distro_label"
+done
+
+if (( found_any == 0 )); then
+    printf "No install packages found for '%s' on command-not-found.com.\n" "$cmd" >&2
+    exit 1
+fi

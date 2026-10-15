@@ -1,0 +1,28 @@
+#!/data/data/com.termux/files/usr/bin/bash
+
+# Kill any existing old sessions
+vncserver -kill :1 2>/dev/null
+
+# Tell the server to launch a minimal desktop and Firefox
+mkdir -p ~/.vnc
+cat << 'EOF' > ~/.vnc/xstartup
+#!/data/data/com.termux/files/usr/bin/sh
+firefox &
+EOF
+chmod +x ~/.vnc/xstartup
+
+# Start the hidden virtual display (securely locked to localhost)
+vncserver -localhost :1 -geometry 1280x720 -depth 24
+
+# Download the noVNC HTML5 bridge if it isn't already installed
+if [ ! -d "$HOME/noVNC" ]; then
+    git clone https://github.com/novnc/noVNC.git ~/noVNC
+fi
+
+echo "================================================="
+echo "TV Browser is running privately in the background!"
+echo "Open this on your TV: http://<ip>:6080/vnc.html"
+echo "================================================="
+
+# Start the web bridge (grabs local feed, broadcasts to the TV)
+~/noVNC/utils/novnc_proxy --vnc localhost:5901 --listen 6080

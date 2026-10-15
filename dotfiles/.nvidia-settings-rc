@@ -1,0 +1,10 @@
+SyncToVBlank=0
+AllowFlipping=0
+FSAA=0
+FSAAAppControlled=1
+FSAAAppEnhanced=0
+FXAA=0
+OpenGLImageSettings=3
+GPUPowerMizerMode=1
+GPUGraphicsClockOffset[1]=100
+GPUMemoryTransferRateOffset[1]=100

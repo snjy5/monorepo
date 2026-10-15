@@ -1,0 +1,6 @@
+[wayland-desktop]
+location = /var/db/repos/wayland-desktop
+priority = 50
+sync-type = git
+sync-uri = https://github.com/bsd-ac/wayland-desktop
+auto-sync = Yes

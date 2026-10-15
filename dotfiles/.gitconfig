@@ -1,0 +1,7 @@
+[core]
+	editor = nvim
+[user]
+	name = snjy5
+	email = snjy4@protonmail.com
+[alias]
+    save = "!git add -A && git commit -m \"wip: $(date '+%Y-%m-%d %H:%M:%S')\" && git push"

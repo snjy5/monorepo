@@ -1,0 +1,47 @@
+#!/bin/bash
+# Paths
+BRIGHTNESS_PATH="/sys/class/backlight/intel_backlight/brightness"
+MAX_PATH="/sys/class/backlight/intel_backlight/max_brightness"
+
+# Default inc/dec
+STEP=20
+
+# Read current and max brightness
+level=$(<"$BRIGHTNESS_PATH")
+max=$(<"$MAX_PATH")
+
+# Set nightlight at low brightness
+#if (( level <= 200 )); then
+#  gammastep -P -O 3500
+#else
+#  gammastep -x 2>&1 > /dev/null || true
+#fi
+
+# Near zero handler
+if (( level <= 30 )); then
+  STEP=1 # decrement slowly near zero
+fi
+
+# Near max handler
+if (( level > max - 30 )); then
+  STEP=1 # fine increments near max 
+fi
+
+# Apply adjustment functions
+minus() {
+  ((level -= STEP))
+}
+
+plus() {
+  ((level += STEP))
+}
+
+# Decide direction
+case "$1" in
+  --minus) minus ;;
+  --plus) plus ;;
+  --set|*) true ;;
+esac
+
+# Write new brightness
+echo "$level" > "$BRIGHTNESS_PATH"

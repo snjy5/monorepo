@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# 1. Dependency checks
+for cmd in ffmpeg xrandr; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        printf "Error: Required dependency '%s' is not installed.\n" "$cmd" >&2
+        exit 1
+    fi
+done
+
+# 2. Toggle Mode: Stop existing recorder if already running
+PID_FILE="${XDG_RUNTIME_DIR:-/tmp}/screen_record.pid"
+
+stop_recording() {
+    local target_pid="$1"
+    printf "Stopping active recording (PID: %s)...\n" "$target_pid"
+    # Send SIGINT so FFmpeg properly finishes container indexes and moov atoms
+    kill -INT "$target_pid" 2>/dev/null || true
+    
+    # Wait up to 5 seconds for clean container finalization
+    for _ in {1..50}; do
+        if ! kill -0 "$target_pid" 2>/dev/null; then
+            break
+        fi
+        sleep 0.1
+    done
+
+    # Force kill if still hung
+    kill -KILL "$target_pid" 2>/dev/null || true
+    rm -f "$PID_FILE"
+    printf "Recording saved successfully.\n"
+    exit 0
+}
+
+if [[ -f "$PID_FILE" ]]; then
+    running_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$running_pid" ]] && kill -0 "$running_pid" 2>/dev/null; then
+        stop_recording "$running_pid"
+    fi
+    rm -f "$PID_FILE"
+fi
+
+# 3. Destination Directory and Filename Setup
+SAVE_DIR="${HOME}/Recordings"
+mkdir -p "$SAVE_DIR"
+TIMESTAMP="$(date +'%Y-%m-%d_%H-%M-%S')"
+OUTPUT_FILE="${SAVE_DIR}/rec_${TIMESTAMP}.mp4"
+
+# 4. Display and Screen Resolution Detection (X11)
+DISPLAY_NAME="${DISPLAY:-:0.0}"
+SCREEN_RES="$(xrandr 2>/dev/null | awk '/\*/ {print $1; exit}')"
+SCREEN_RES="${SCREEN_RES:-1920x1080}"
+
+# Auto-detect CPU threads
+THREADS="$(nproc 2>/dev/null || echo 4)"
+FPS="30"
+
+# 5. Audio Backend Detection (PulseAudio / PipeWire fallback)
+AUDIO_ARGS=()
+if command -v pactl >/dev/null 2>&1 && pactl info >/dev/null 2>&1; then
+    AUDIO_ARGS+=(-f pulse -i default)
+fi
+
+# 6. Trap handling for Ctrl+C cleanup
+cleanup_trap() {
+    rm -f "$PID_FILE"
+}
+trap cleanup_trap EXIT INT TERM
+
+# 7. Start FFmpeg Recording
+printf "Recording started -> %s\n" "$OUTPUT_FILE"
+printf "Resolution: %s | FPS: %s | Threads: %s\n" "$SCREEN_RES" "$FPS" "$THREADS"
+printf "Press Ctrl+C or run '%s' again to finish recording.\n" "$(basename "$0")"
+
+ffmpeg \
+    -loglevel warning -stats \
+    -video_size "$SCREEN_RES" \
+    -framerate "$FPS" \
+    -f x11grab \
+    -i "$DISPLAY_NAME" \
+    "${AUDIO_ARGS[@]}" \
+    -c:v libx264 \
+    -preset ultrafast \
+    -tune zerolatency \
+    -crf 23 \
+    -pix_fmt yuv420p \
+    -movflags +faststart \
+    -c:a aac \
+    -b:a 128k \
+    -threads "$THREADS" \
+    "$OUTPUT_FILE" &
+
+FFMPEG_PID=$!
+echo "$FFMPEG_PID" > "$PID_FILE"
+
+# Wait for background ffmpeg job to complete
+wait "$FFMPEG_PID" || true
+rm -f "$PID_FILE"

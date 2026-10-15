@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Connect bluetooth audio
+MAC="00:42:79:40:5A:D3"
+bluetoothctl connect $MAC
+sleep 5
+pkill -9 pulseaudio
+pulseaudio & disown

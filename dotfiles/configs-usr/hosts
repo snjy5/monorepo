@@ -1,0 +1,4 @@
+#<ip-address>		<hostname.domain.org>	<hostname>
+127.0.0.1		localhost		linux
+::1			localhost
+0.0.0.0			www.facebook.com

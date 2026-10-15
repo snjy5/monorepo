@@ -1,0 +1,71 @@
+name: Build recovery Image
+
+on: 
+  push:
+    branches:
+      - main
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+
+  build:
+    runs-on: ubuntu-18.04
+
+    env:
+      VENDOR: motorola
+      DEVICE: guamp
+      ANDROID_ROOT: /home/runner/work/twrp/
+      TZ: Asia/Kolkata
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@main
+    
+    - name: Initialization environment
+      run: |
+        for i in $(docker ps -q -a); do docker rmi -f $i; done
+        bash -x cleanup.sh
+        git clone https://github.com/akhilnarang/scripts &&\
+        cd scripts
+        bash setup/android_build_env.sh
+  
+        sudo rm -rf \
+          /usr/share/dotnet \
+          /etc/mysql \
+          /etc/php \
+          .cache \
+          /var/cache/* \
+          /usr/local/share/boost \
+          /opt/ \
+          /usr/src \
+          $AGENT_TOOLSDIRECTORY
+        sudo rm /boot/* | true
+        mkdir -p ~/bin
+        wget 'https://storage.googleapis.com/git-repo-downloads/repo' -P ~/bin
+        chmod +x ~/bin/repo
+        git config --global user.name "OrangeFox Volla Phone CI"
+        git config --global user.email "thisemaildoesnotexist@exist.com"
+
+    - name: Downloading source code
+      run: |
+        source of.env
+        mkdir -p $ANDROID_ROOT
+        cd $ANDROID_ROOT
+        
+        repo init -c --no-repo-verify --no-clone-bundle --depth=1 --partial-clone --clone-filter=blob:limit=10M -u \
+        git://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-11 -g default,-notdefault,-device,-darwin,-x86,-mips 
+        repo sync -j$(nproc --all) -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags --optimized-fetch --prune
+        
+        git clone --depth=1 https://github.com/RazaDroidProject/recovery_device_motorola_guamp.git device/motorola/guamp
+        export DEVICE_PATH=$ANDROID_ROOT/platform_manifest_twrp_aosp/device/motorola/guamp
+ 
+    - name: Build recovery
+      run: |
+        sudo rm -rf /var/cache/*
+        bash -x build.sh
+
+    - name: Upload recovery image
+      run: |
+        curl -T /home/runner/work/twrp/out/target/product/guamp/recovery.img https://oshi.at

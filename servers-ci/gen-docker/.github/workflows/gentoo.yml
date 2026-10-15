@@ -1,0 +1,35 @@
+name: Build
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  push:
+  workflow_dispatch:
+
+jobs:
+  Start:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@v2
+
+    - name: Setup chroot
+      run: ./docker.sh setup_chroot
+
+    - name: Chroot and setup gentoo
+      run: ./docker.sh setup_build
+
+    - name: Build system
+      run: ./docker.sh build
+      
+    - name: Remove some files
+      run: ./docker.sh cleanup
+      
+    - name: Compress root
+      run: ./docker.sh compress
+
+    - name: Upload docker image
+      run: |
+        export PASS="${{ secrets.PASS }}"
+        ./docker.sh upload

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+t="$(mktemp)"
+invidious_instance="https://invidious.privacydev.net" ytfzf -L >"$t"
+mpv "$(cat "$t")"
+command rm -f "$t"

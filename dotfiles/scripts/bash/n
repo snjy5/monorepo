@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# Configuration: defaults to $NOTES_DIR or current working directory
+NOTES_DIR = Path(os.getenv("NOTES_DIR", Path.cwd())).resolve()
+
+
+def get_editor() -> list[str]:
+    """Resolves editor from environment with safe fallbacks and shell splitting."""
+    editor_env = os.getenv("VISUAL") or os.getenv("EDITOR")
+    if editor_env:
+        return shlex.split(editor_env)
+
+    # Standard terminal fallbacks
+    for candidate in ["nvim", "vim", "nano"]:
+        if shutil.which(candidate):
+            return [candidate]
+
+    # Windows fallback
+    if sys.platform == "win32":
+        return ["notepad.exe"]
+
+    return ["vi"]
+
+
+EDITOR_CMD = get_editor()
+
+
+def clear_screen():
+    """Clears terminal screen and scrollback buffer across POSIX and Windows."""
+    if os.name == "posix":
+        # \033[3J clears scrollback buffer, \033[2J clears screen, \033[H homes cursor
+        sys.stdout.write("\033[3J\033[2J\033[H")
+        sys.stdout.flush()
+    else:
+        os.system("cls")
+
+
+def get_sorted_notes() -> list[Path]:
+    """Recursively collects regular files, ignoring hidden files/folders (.git, etc.)."""
+    if not NOTES_DIR.exists():
+        return []
+
+    files = [
+        f
+        for f in NOTES_DIR.rglob("*")
+        if f.is_file()
+        and not any(part.startswith(".") for part in f.relative_to(NOTES_DIR).parts)
+    ]
+    # Sort newest modified first
+    files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    return files
+
+
+def read_file_content(file_path: Path) -> str:
+    """Reads file text safely, skipping non-UTF-8 binary content."""
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read().lower()
+    except Exception:
+        return ""
+
+
+def filter_notes(all_files: list[Path], search_query: str) -> list[Path]:
+    """Matches search tokens against both relative path and file contents."""
+    query = search_query.strip()
+    if not query:
+        return all_files
+
+    keywords = query.lower().split()
+    matched_files = []
+
+    for file_path in all_files:
+        try:
+            path_str = str(file_path.relative_to(NOTES_DIR)).lower()
+        except ValueError:
+            path_str = file_path.name.lower()
+
+        content_lower = None
+        match = True
+
+        for kw in keywords:
+            # Match path first (fast)
+            if kw in path_str:
+                continue
+
+            # Lazily load body content if keyword isn't in path
+            if content_lower is None:
+                content_lower = read_file_content(file_path)
+
+            if kw not in content_lower:
+                match = False
+                break
+
+        if match:
+            matched_files.append(file_path)
+
+    return matched_files
+
+
+def preview_file(file_path: Path, max_lines: int = 3):
+    """Prints up to `max_lines` preview without crashing on binary files."""
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            lines_printed = 0
+            for line in f:
+                stripped = line.rstrip("\r\n")
+                if stripped.strip():
+                    print(f"  │ {stripped}")
+                    lines_printed += 1
+                if lines_printed >= max_lines:
+                    break
+            if lines_printed == 0:
+                print("  │ <empty file>")
+    except Exception:
+        print("  │ <binary or unreadable file>")
+
+
+def main():
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    search_query = ""
+
+    while True:
+        clear_screen()
+        all_files = get_sorted_notes()
+        files = filter_notes(all_files, search_query)
+
+        print(f"=== NOTES MANAGER [{NOTES_DIR}] ===")
+        if search_query:
+            print(f"Filter: '{search_query}' ({len(files)} match{'es' if len(files) != 1 else ''})")
+        print("-" * 50)
+
+        if not files:
+            if search_query:
+                print("No matching notes found.")
+            else:
+                print("No notes found.")
+        else:
+            for i, file_path in enumerate(files, start=1):
+                try:
+                    display_path = file_path.relative_to(NOTES_DIR)
+                except ValueError:
+                    display_path = file_path.name
+
+                print(f"[{i}] {display_path}")
+                preview_file(file_path, max_lines=3)
+                print()
+
+        print("-" * 50)
+        print("[/num] open | [query] search | [enter] reset | [/q] quit")
+
+        try:
+            choice = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+
+        if choice == "":
+            search_query = ""
+        elif choice == "/q" or choice.lower() == "q":
+            break
+        elif choice.startswith("/") and choice[1:].strip().isdigit():
+            num = int(choice[1:].strip())
+            if 1 <= num <= len(files):
+                target = str(files[num - 1])
+                try:
+                    subprocess.run([*EDITOR_CMD, target], check=False)
+                except Exception as err:
+                    input(f"Failed to launch editor ({EDITOR_CMD}): {err}. Press Enter to continue.")
+            else:
+                input("Index out of range! Press Enter to retry.")
+        else:
+            search_query = choice
+
+
+if __name__ == "__main__":
+    main()

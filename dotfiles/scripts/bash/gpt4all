@@ -1,0 +1,2 @@
+#!/bin/bash
+exec $HOME/gpt4all/bin/chat

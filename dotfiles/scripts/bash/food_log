@@ -1,0 +1,134 @@
+#!/bin/bash
+
+DB="$HOME/food_log.db"
+TODAY=$(date +%Y-%m-%d)
+START_DATE="2025-09-19"
+
+# SQL variables
+SQL_SINGLE_DAY="\
+  SELECT desc, protein, calories
+FROM food_log
+WHERE log_date = '$TODAY'
+UNION ALL
+SELECT '---------------' AS desc,
+'---------------' AS protein,
+'---------------' AS calories
+UNION ALL
+SELECT '' AS desc,
+printf('%.1f (g)', SUM(protein)) AS protein,
+printf('%.1f (kcal)', SUM(calories)) AS calories
+FROM food_log
+WHERE log_date = '$TODAY';"
+
+SQL_ALL="\
+  WITH days AS (
+    SELECT DISTINCT log_date
+    FROM food_log
+    WHERE log_date >= '$START_DATE'
+  )
+  SELECT desc, protein, calories
+  FROM (
+    -- 1. Date header
+    SELECT '' AS log_date,
+    printf('%s: ', d.log_date) AS desc,
+    '' AS protein,
+    '' AS calories,
+    d.log_date AS sort_date,
+    0 AS sort_order
+    FROM days d
+
+    UNION ALL
+
+    -- 2. Food entries
+    SELECT '' AS log_date,
+    f.desc,
+    printf('%.1f (g)', f.protein) AS protein,
+    printf('%.1f (kcal)', f.calories) AS calories,
+    f.log_date AS sort_date,
+    1 AS sort_order
+    FROM food_log f
+
+    UNION ALL
+
+    -- 3. Daily totals
+    SELECT '' AS log_date,
+    '' AS desc,
+    printf('%.1f (g)', SUM(f.protein)) AS protein,
+    printf('%.1f (kcal)', SUM(f.calories)) AS calories,
+    f.log_date AS sort_date,
+    2 AS sort_order
+    FROM food_log f
+    GROUP BY f.log_date
+
+    UNION ALL
+
+    -- 4. Separator
+    SELECT '' AS log_date,
+    '---------------' AS desc,
+    '---------------' AS protein,
+    '---------------' AS calories,
+    d.log_date AS sort_date,
+    3 AS sort_order
+    FROM days d
+    ) t
+    ORDER BY sort_date, sort_order;"
+
+# Stores a food entry
+commit_entries_to_db (){
+  echo
+  echo "Logging food for $TODAY"
+
+  read -p "Food description: " DESC
+  read -p "Calories (kcal): " CALORIES
+  read -p "Protein (g): " PROTEIN
+
+  # Sanitize input for SQL
+  DESC=${DESC//\'/\'\'}
+
+  # Validate numbers
+  is_number() { [[ "$1" =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
+
+  for var in CALORIES PROTEIN; do
+    value="${!var}"
+    if ! is_number "$value"; then
+      echo "$var must be a non-negative number. Aborting."
+      exit 1
+    fi
+  done
+
+  SQL_INSERT="INSERT INTO food_log (log_date, desc, protein, calories) VALUES ('$TODAY', '${DESC}', ${PROTEIN}, ${CALORIES});"
+  # Execute insert
+  sqlite3 "$DB" "$SQL_INSERT"
+  echo "Added: $DESC — $PROTEIN (g) protein, $CALORIES (kcal)"
+}
+
+
+display_data(){
+  if [[ "$1" == "ALL" ]]; then
+    echo
+    echo "Full food log from $START_DATE to $TODAY:"
+    sqlite3 -header -column "$DB" "$SQL_ALL"
+  else
+    # Allow overriding the date for display
+    local display_date=${1:-$TODAY}
+    echo
+    echo "Log for $display_date:"
+    # Modify SQL query to use the correct date variable
+    local sql_single_day_local="${SQL_SINGLE_DAY//\$TODAY/$display_date}"
+    sqlite3 -header -column "$DB" "$sql_single_day_local"
+  fi
+}
+
+# --- Main ---
+if [[ "$1" == "--all" ]]; then
+  display_data "ALL"
+else
+  # 1. Show today's existing data
+  display_data
+
+    # 2. Collect and write all entries to the database
+    commit_entries_to_db
+
+    # 3. Show the updated log for today
+    display_data
+fi

@@ -1,0 +1,23 @@
+# quick git ref:
+# 1. dir/ = matches dir recursively
+# 2. dir = same as 1. but also files
+# 3. /dir/ = only match in root/same dir as .gitignore
+# 4. dir/* = contents & dirs directly inside, not whats inside them
+# 5. dir/** = like 4. but goes into all subdirs too
+
+/secrets/**
+/secret/**
+/terraform/secrets/**
+/terraform/secret/**
+
+# Ansible backups
+*.bak
+
+# IDE and OS files
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# logs & misc
+*.log

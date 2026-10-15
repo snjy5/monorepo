@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Usage: syspower [max|save|conservative|gpu-oc|zram|cstate]
+set -euo pipefail
+
+set_cpu() {
+    local gov="$1" min="$2" max="$3" bias="$4"
+    for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo "$gov" > "$g" 2>/dev/null || true; done
+    for b in /sys/devices/system/cpu/cpu*/power/energy_perf_bias; do echo "$bias" > "$b" 2>/dev/null || true; done
+    for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_min_freq; do echo "$min" > "$f" 2>/dev/null || true; done
+    for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq; do echo "$max" > "$f" 2>/dev/null || true; done
+}
+
+case "${1:-}" in
+    max)
+        modprobe cpufreq_performance 2>/dev/null || true
+        set_cpu "performance" 3400000 4000000 0
+        echo "Profile: Maximum Performance set."
+        ;;
+    save)
+        set_cpu "powersave" 200000 800000 15
+        echo "Profile: Powersave set."
+        ;;
+    conservative)
+        modprobe cpufreq_conservative 2>/dev/null || true
+        set_cpu "conservative" 400000 2000000 7
+        echo "Profile: Conservative set."
+        ;;
+    gpu-oc)
+        chmod -R a=rw /sys/class/drm/card0/gt* 2>/dev/null || true
+        freq="${2:-1050}"
+        for i in /sys/class/drm/card0/gt*; do [[ -w "$i" ]] && echo "$freq" > "$i" || true; done
+        echo "GPU GT set to ${freq}MHz."
+        ;;
+    zram)
+        swapoff /dev/zram0 2>/dev/null || true
+        modprobe zram num_devices=1 2>/dev/null || true
+        echo zstd > /sys/class/block/zram0/comp_algorithm 2>/dev/null || echo lz4 > /sys/class/block/zram0/comp_algorithm
+        echo "${2:-2000M}" > /sys/block/zram0/disksize
+        mkswap /dev/zram0 >/dev/null
+        swapon -p 32767 /dev/zram0
+        echo "ZRAM active (${2:-2000M})."
+        ;;
+    cstate)
+        echo "Enabling 10s CPU DMA latency for deep c-states..."
+        exec 3> /dev/cpu_dma_latency
+        echo 10000000 >&3
+        tail -f /dev/null
+        ;;
+    *)
+        echo "Usage: syspower {max|save|conservative|gpu-oc [mhz]|zram [size]|cstate}"
+        exit 1
+        ;;
+esac

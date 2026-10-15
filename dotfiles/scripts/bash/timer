@@ -1,0 +1,20 @@
+#!/bin/bash
+timer="$HOME/timer"
+read -p "restart? y/n: "
+if [[ $REPLY == "y" ]]; then 
+  sec="$((30*60))"
+else
+  read sec < $timer
+fi
+
+reset -Q
+
+while [[ $sec -ge 0 ]] && sleep 1s
+do 
+  echo $sec > $timer
+  read sec < $timer
+  printf "\r%s " "$((sec/60)):$((sec%60))"
+  sec="$((sec-1))"
+done
+
+mpv --loop --no-resume-playback "$HOME/Music/m4a/Ovens_Delight_Little_Pomodor.m4a"

@@ -1,0 +1,14 @@
+daemonize
+color=000000
+ignore-empty-password
+show-failed-attempts
+clock
+timestr=%H:%M
+datestr=%A, %d %B
+indicator
+indicator-radius=100
+indicator-thickness=10
+line-uses-ring
+font=JetBrains Mono
+font-size=24
+disable-caps-lock-text

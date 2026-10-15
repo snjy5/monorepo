@@ -1,0 +1,17 @@
+<<<<<<< dest:hostname
+<<<<<<< dest:confs/etc/hostname
+<<<<<<< dest:hostname
+<<<<<<< dest:hostname
+yoga
+=======
+debian
+>>>>>>> source:confs/etc/hostname
+=======
+linux
+>>>>>>> source:small_files/etc/hostname
+=======
+debian
+>>>>>>> source:../misc/confs/etc/hostname
+=======
+linux
+>>>>>>> source:small_files/etc/hostname

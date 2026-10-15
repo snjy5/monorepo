@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# backup-ctl: Btrfs Snapshots, Dotfile Staging & Cache Maintenance Engine
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="backup-ctl"
+SNAPSHOT_ROOT="/snapshots"
+
+log_info()  { printf "[INFO]  %s\n" "$*" >&2; }
+log_warn()  { printf "[WARN]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+elevate_if_needed() {
+    if [[ $EUID -ne 0 ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            exec sudo "$0" "$@"
+        else
+            log_error "Root privileges required for filesystem operations."
+            exit 1
+        fi
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 1. Btrfs Snapshot Engine
+# ------------------------------------------------------------------------------
+create_snapshot() {
+    elevate_if_needed snap "$@"
+
+    local target_subvol="${1:-/}"
+    local label="${2:-$(date '+%Y%m%d_%H%M%S')}"
+
+    mkdir -p "$SNAPSHOT_ROOT"
+    local dest_dir="${SNAPSHOT_ROOT}/${label}"
+
+    if [[ -d "$dest_dir" ]]; then
+        log_warn "Snapshot '$dest_dir' already exists. Deleting older copy..."
+        btrfs subvolume delete "$dest_dir" >/dev/null
+    fi
+
+    log_info "Creating read-only snapshot: $target_subvol -> $dest_dir"
+    btrfs subvolume snapshot -r "$target_subvol" "$dest_dir"
+    printf "Snapshot completed: %s\n" "$dest_dir"
+}
+
+# ------------------------------------------------------------------------------
+# 2. Dotfile & Config Backup Staging Engine (Secrets Sanitized)
+# ------------------------------------------------------------------------------
+sync_dotfiles_external() {
+    local target_dest="${1:-}"
+
+    if [[ -z "$target_dest" ]]; then
+        # Auto-detect external mount points or fallback to standard backup partition
+        target_dest=$(findmnt -n -o TARGET /sdcard 2>/dev/null || true)
+        [[ -z "$target_dest" ]] && target_dest="/mnt/backup"
+    fi
+
+    [[ ! -d "$target_dest" ]] && { log_error "Destination '$target_dest' does not exist or is not mounted."; return 1; }
+
+    log_info "Synchronizing user dotfiles to $target_dest..."
+    mkdir -p "${target_dest}/configs" "${target_dest}/data"
+
+    # Configuration files (excluding raw credentials and private keys)
+    local configs=(
+        .bashrc .bash_profile .config/nvim .config/sway .config/waybar
+        .config/mpv .gitconfig .inputrc .tmux.conf .vimrc
+    )
+
+    for item in "${configs[@]}"; do
+        if [[ -e "$HOME/$item" ]]; then
+            mkdir -p "${target_dest}/configs/$(dirname "$item")"
+            cp -ru --parents "$HOME/$item" "${target_dest}/configs/" 2>/dev/null || true
+        fi
+    done
+
+    # High-level directories
+    local data_dirs=(Notes Documents Scripts)
+    for dir in "${data_dirs[@]}"; do
+        if [[ -d "$HOME/$dir" ]]; then
+            rsync -a --delete "$HOME/$dir" "${target_dest}/data/" 2>/dev/null || cp -ru "$HOME/$dir" "${target_dest}/data/" 2>/dev/null || true
+        fi
+    done
+
+    sync
+    printf "Backup staging completed successfully at: %s\n" "$target_dest"
+}
+
+# ------------------------------------------------------------------------------
+# 3. Memory & Page Cache Flush
+# ------------------------------------------------------------------------------
+purge_kernel_caches() {
+    elevate_if_needed dropcache
+
+    log_info "Flushing cached memory..."
+    sync
+    printf 3 > /proc/sys/vm/drop_caches
+    printf "Kernel pagecache, dentries, and inodes dropped.\n"
+}
+
+# ------------------------------------------------------------------------------
+# 4. CLI Router
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal Snapshot, Staged Dotfile Backup & Cache Tool
+
+Usage:
+  $PROG_NAME <command> [arguments]
+
+Commands:
+  snap        [subvolume] [label]  Takes a fresh read-only Btrfs snapshot
+  sync-drive  [mount_path]         Syncs user configurations and notes safely
+  dropcache                        Syncs disks and drops kernel pagecaches
+
+Examples:
+  $PROG_NAME snap / root_daily
+  $PROG_NAME sync-drive /run/media/$USER/EXTERNAL
+  $PROG_NAME dropcache
+EOF
+    exit 0
+}
+
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        snap|snapshot)   create_snapshot "$@" ;;
+        sync-drive|sync) sync_dotfiles_external "$@" ;;
+        dropcache|purge) purge_kernel_caches ;;
+        *)               show_help ;;
+    esac
+}
+
+main "$@"
+

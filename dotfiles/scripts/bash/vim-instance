@@ -1,0 +1,13 @@
+#!/bin/bash
+[[ $# -eq 0 ]] && exit
+
+vim=/usr/bin/vim
+filename="$(realpath $1)"
+instance_open="$(ps -f -C vim | grep -o "$vim $filename" | wc -l)"
+
+if [[ $instance_open -gt 0 ]]; then
+    echo Another vim instance is already using this file
+    exit
+fi
+
+$vim "$filename"

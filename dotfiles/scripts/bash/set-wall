@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+WALLPAPER="$(shuf -e -n1 "${HOME}/ALL/wallpapers/"*)"
+echo "${WALLPAPER}"

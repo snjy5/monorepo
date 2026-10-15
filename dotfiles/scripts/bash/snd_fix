@@ -1,0 +1,3 @@
+#!/bin/bash
+sox -n -r 44100 -c 2 ~/.silent.wav trim 0.0 2.0
+mpv --no-config --ao=alsa --no-video --loop ~/.silent.wav

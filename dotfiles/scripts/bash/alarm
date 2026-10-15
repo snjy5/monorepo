@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Prevent infinite re-exec recursion using an internal environment variable flag
+if [[ -z "${__ALARM_RENAMED:-}" ]]; then
+    export __ALARM_RENAMED=1
+    exec -a "alarm" "$0" "$@"
+fi
+
+# Ensure cleanup runs on exit or early termination (Ctrl+C, SIGTERM)
+config="$HOME/.alarm"
+cleanup() {
+    rm -f "$config"
+}
+trap cleanup EXIT
+
+# Validate argument count
+if [[ $# -lt 1 ]]; then
+    printf "Usage: %s <time>\n" "$0" >&2
+    exit 1
+fi
+
+# Parse target time with GNU date (falls back to BSD/macOS syntax if available)
+target_time="$1"
+if ! target_epoch=$(date -d "$target_time" +%s 2>/dev/null); then
+    # BSD/macOS fallback: date -j -f ... or general relative formats
+    if ! target_epoch=$(date -j -v+"$target_time" +%s 2>/dev/null); then
+        printf "Invalid time format: %s\n" "$target_time" >&2
+        exit 1
+    fi
+fi
+
+now=$(date +%s)
+time_to_sleep=$(( target_epoch - now ))
+
+# Handle times in the past (e.g., if a clock time like "07:00" already passed today)
+if (( time_to_sleep <= 0 )); then
+    # If the user specified a time like "10:00", interpret it as tomorrow
+    if target_epoch=$(date -d "tomorrow $target_time" +%s 2>/dev/null); then
+        time_to_sleep=$(( target_epoch - now ))
+    fi
+fi
+
+if (( time_to_sleep <= 0 )); then
+    printf "Specified time '%s' is in the past.\n" "$target_time" >&2
+    exit 1
+fi
+
+# Persist alarm timestamp
+printf "%s\n" "$target_epoch" > "$config"
+
+printf "Alarm set for %s (sleeping for %d seconds)...\n" \
+    "$(date -d "@$target_epoch" 2>/dev/null || date -r "$target_epoch")" \
+    "$time_to_sleep"
+
+# Sleep until target
+sleep "$time_to_sleep"
+
+# Audio alert (terminal bell + optional system audio) and message
+printf "\a%s\n" "Wakey Wakey!"
+if command -v paplay >/dev/null 2>&1; then
+    paplay /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga 2>/dev/null || true
+elif command -v afplay >/dev/null 2>&1; then
+    afplay /System/Library/Sounds/Glass.aiff 2>/dev/null || true
+fi

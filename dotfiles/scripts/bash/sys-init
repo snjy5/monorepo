@@ -1,0 +1,288 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# sys-init: Hardware Initialization, Storage Staging & Kernel Service Engine
+# ==============================================================================
+set -euo pipefail
+
+PROG_NAME="sys-init"
+VERBOSE=0
+
+log_info()  { [[ $VERBOSE -eq 1 ]] && printf "[INFO]  %s\n" "$*" >&2 || true; }
+log_warn()  { printf "[WARN]  %s\n" "$*" >&2; }
+log_error() { printf "[ERROR] %s\n" "$*" >&2; }
+
+elevate_if_needed() {
+    if [[ $EUID -ne 0 ]]; then
+        if command -v sudo >/dev/null 2>&1; then
+            exec sudo "$0" "$@"
+        elif command -v doas >/dev/null 2>&1; then
+            exec doas "$0" "$@"
+        else
+            log_error "Root privileges required."
+            exit 1
+        fi
+    fi
+}
+
+safe_write() {
+    local val="$1"
+    local dest="$2"
+    if [[ -w "$dest" ]]; then
+        printf "%s" "$val" > "$dest" 2>/dev/null || true
+    fi
+}
+
+# ------------------------------------------------------------------------------
+# 1. Kernel Modules & Hardware Driver Bootstrapper
+# ------------------------------------------------------------------------------
+load_modules() {
+    elevate_if_needed load-modules "$@"
+
+    local core_modules=(
+        btrfs ahci nvram efivarfs loop dm_mod
+        i915 drm_kms_helper
+        snd snd_pcm snd_hda_intel snd_hda_codec
+        cfg80211 iwlwifi iwlmvm
+        xhci_hcd xhci_pci
+    )
+
+    log_info "Loading baseline kernel modules..."
+    for mod in "${core_modules[@]}"; do
+        modprobe "$mod" 2>/dev/null || true
+    done
+
+    # Power optimizations for Intel wireless
+    modprobe iwlwifi power_save=1 2>/dev/null || true
+    modprobe iwlmvm power_scheme=3 2>/dev/null || true
+    printf "Kernel modules initialized.\n"
+}
+
+# ------------------------------------------------------------------------------
+# 2. Storage Staging & File System Mount Engine
+# ------------------------------------------------------------------------------
+manage_mounts() {
+    local action="${1:-mount}" # mount | umount
+    elevate_if_needed mount "$action"
+
+    case "$action" in
+        mount)
+            log_info "Staging system mounts..."
+            mount -o remount,rw,space_cache=v2,noatime,discard=async / 2>/dev/null || true
+            mkdir -p /snapshots
+            local root_disk
+            root_disk=$(findmnt -n -o SOURCE / || echo "/dev/sda2")
+            mount -t btrfs -o rw,space_cache=v2,noatime,discard=async,subvol=@snapshots "$root_disk" /snapshots 2>/dev/null || true
+
+            # Pseudofs nodes
+            mount -t proc proc /proc 2>/dev/null || true
+            mount -t sysfs sys /sys 2>/dev/null || true
+            mount -t devtmpfs dev /dev 2>/dev/null || true
+            mount -o newinstance,ptmxmode=0666 devpts -t devpts /dev/pts 2>/dev/null || true
+            mount -o size=2G,noatime -t tmpfs tmpfs /dev/shm 2>/dev/null || true
+            mount -o noatime -t tmpfs tmpfs /tmp 2>/dev/null || true
+            printf "System filesystems staged successfully.\n"
+            ;;
+        umount|unmount)
+            log_info "Unmounting and making filesystems read-only..."
+            sync; sync; sync
+            mount -o remount,ro / 2>/dev/null || true
+            umount -a -r 2>/dev/null || true
+            umount -l -a -r 2>/dev/null || true
+            printf "Filesystems unmounted cleanly.\n"
+            ;;
+        *)
+            log_error "Usage: sys-init mount <mount|umount>"
+            return 1
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------------------
+# 3. Memory Compression (ZRAM & Zswap)
+# ------------------------------------------------------------------------------
+setup_zram() {
+    local size="${1:-4G}"
+    elevate_if_needed zram "$size"
+
+    swapoff /dev/zram0 2>/dev/null || true
+    modprobe zram num_devices=1 2>/dev/null || true
+
+    # Prefer modern fast compressors
+    local comp="zstd"
+    if ! grep -q "$comp" /sys/class/block/zram0/comp_algorithm 2>/dev/null; then
+        comp="lz4"
+    fi
+
+    safe_write "$comp" "/sys/class/block/zram0/comp_algorithm"
+    safe_write "$size" "/sys/class/block/zram0/disksize"
+    mkswap /dev/zram0 >/dev/null 2>&1
+    swapon -p 32767 /dev/zram0
+    printf "ZRAM active on /dev/zram0 (%s, compression: %s).\n" "$size" "$comp"
+}
+
+setup_zswap() {
+    elevate_if_needed zswap
+
+    safe_write 100 "/proc/sys/vm/swappiness"
+    safe_write "zstd" "/sys/module/zswap/parameters/compressor"
+    safe_write 20 "/sys/module/zswap/parameters/max_pool_percent"
+    safe_write "z3fold" "/sys/module/zswap/parameters/zpool" || safe_write "zbud" "/sys/module/zswap/parameters/zpool"
+    safe_write 1 "/sys/module/zswap/parameters/enabled"
+    printf "Zswap pool active (Compressor: zstd, Pool: 20%%).\n"
+}
+
+# ------------------------------------------------------------------------------
+# 4. Hardware Node Permissions & Udev
+# ------------------------------------------------------------------------------
+fix_user_permissions() {
+    elevate_if_needed perms
+
+    local target_user="${1:-${SUDO_USER:-$USER}}"
+    local target_group
+    target_group=$(id -gn "$target_user" 2>/dev/null || echo "$target_user")
+
+    log_info "Assigning device node ownership to $target_user:$target_group..."
+    for node in /dev/dri/card* /dev/dri/render* /dev/input/event* /dev/snd/* /dev/video*; do
+        if [[ -e "$node" ]]; then
+            chown "${target_user}:${target_group}" "$node" 2>/dev/null || true
+        fi
+    done
+
+    for bl in /sys/class/backlight/*/brightness; do
+        if [[ -w "$bl" || -e "$bl" ]]; then
+            chown "${target_user}:${target_group}" "$bl" 2>/dev/null || true
+            chmod 664 "$bl" 2>/dev/null || true
+        fi
+    done
+
+    printf "Permissions updated for user: %s\n" "$target_user"
+}
+
+reload_udev() {
+    elevate_if_needed udev
+    udevadm control --reload-rules
+    udevadm trigger --action=add
+    printf "Udev rules reloaded and triggered.\n"
+}
+
+# ------------------------------------------------------------------------------
+# 5. TPM WebAuthn Hardware Signing Engine
+# ------------------------------------------------------------------------------
+tpm_sign_bridge() {
+    if ! command -v tpm2_createprimary >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+        log_error "'tpm2-tools' and 'jq' are required for TPM native messaging."
+        return 1
+    fi
+
+    # Read 4-byte native messaging payload length
+    local length_bytes
+    read -N 4 length_bytes || return 1
+    local length
+    length=$(printf "%d" "0x$(xxd -p <<< "$length_bytes")")
+
+    local json_input
+    read -N "$length" json_input
+
+    local challenge_b64
+    challenge_b64=$(jq -r '.challenge' <<< "$json_input")
+
+    # Base64url to standard Base64 conversion
+    local challenge_raw
+    challenge_raw=$(tr '_-' '/+' <<< "$challenge_b64" | awk '{s=$0; l=length(s)%4; if(l==2)s=s"=="; else if(l==3)s=s"="; print s}')
+    base64 -d <<< "$challenge_raw" > /tmp/tpm_chal.bin
+
+    tpm2_createprimary -C o -c /tmp/tpm_primary.ctx >/dev/null 2>&1
+    tpm2_sign -c /tmp/tpm_primary.ctx -g sha256 -o /tmp/tpm_sig.bin /tmp/tpm_chal.bin >/dev/null 2>&1
+
+    local sig_b64
+    sig_b64=$(base64 -w 0 /tmp/tpm_sig.bin | tr '/+' '_-' | tr -d '=')
+    rm -f /tmp/tpm_chal.bin /tmp/tpm_sig.bin /tmp/tpm_primary.ctx
+
+    local response_json
+    response_json=$(jq -n \
+        --arg sig "$sig_b64" \
+        --arg chal "$challenge_b64" \
+        '{"signature": $sig, "challenge": $chal, "authenticatorData": "SZYN5YgOjGh0NBcP51AXbOCYSk4aff4cRAAAAAE", "clientDataType": "webauthn.get"}')
+
+    local out_len=${#response_json}
+    printf "$(printf '\\x%08x' "$out_len" | sed 's/\(..\)\(..\)\(..\)\(..\)/\\x\4\\x\3\\x\2\\x\1/')%s" "$response_json"
+}
+
+# ------------------------------------------------------------------------------
+# 6. Status Bar Memory Formatter (Pipe for i3status / swaybar)
+# ------------------------------------------------------------------------------
+format_i3status_memory() {
+    local meminfo="/proc/meminfo"
+    while IFS= read -r line; do
+        local free cached total_free_kb
+        free=$(awk '/^MemFree/ {print $2}' "$meminfo")
+        cached=$(awk '/^Cached/ {print $2}' "$meminfo")
+        total_free_kb=$(( free + cached ))
+
+        local display_mem
+        if (( total_free_kb > 1048576 )); then
+            display_mem="$(awk "BEGIN {printf \"%.1f GB\", $total_free_kb / 1048576}")"
+        else
+            display_mem="$(( total_free_kb / 1024 )) MB"
+        fi
+
+        sed "s/\[{/\[{\"full_text\":\" Free: $display_mem \",\"separator\":false },{/" <<< "$line"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# 7. CLI Entry Point (getopts)
+# ------------------------------------------------------------------------------
+show_help() {
+    cat <<EOF
+$PROG_NAME: Universal System Initialization, Storage Staging & Kernel Utility
+
+Usage:
+  $PROG_NAME [options] <command> [arguments]
+
+Commands:
+  load-modules                  Probes and loads baseline system kernel modules
+  mount        [mount|umount]   Stages root Btrfs snapshots and pseudo-filesystems
+  zram         [size]           Sets up dynamic compressed swap on /dev/zram0
+  zswap                         Activates kernel-level Zswap pool with zstd
+  perms        [username]       Grants local user access to video/audio/backlight nodes
+  udev                          Reloads and triggers udev rules
+  tpm-bridge                    Runs stdio WebAuthn TPM signer for browsers
+  mem-pipe                      Filters i3status/swaybar JSON adding free RAM stats
+
+Options:
+  -v           Enable verbose logging
+  -h           Show this help message
+
+EOF
+    exit 0
+}
+
+main() {
+    while getopts ":vh" opt; do
+        case "$opt" in
+            v) VERBOSE=1 ;;
+            h) show_help ;;
+            \?) log_error "Invalid option: -$OPTARG"; show_help ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+
+    local cmd="${1:-}"
+    shift || true
+
+    case "$cmd" in
+        load-modules)     load_modules ;;
+        mount|staging)    manage_mounts "${1:-mount}" ;;
+        zram)             setup_zram "${1:-4G}" ;;
+        zswap)            setup_zswap ;;
+        perms|permissions) fix_user_permissions "${1:-}" ;;
+        udev)             reload_udev ;;
+        tpm-bridge)       tpm_sign_bridge ;;
+        mem-pipe)         format_i3status_memory ;;
+        *)                show_help ;;
+    esac
+}
+
+main "$@"
+

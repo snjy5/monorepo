@@ -1,0 +1,80 @@
+<<<<<<< dest:default/grub
+<<<<<<< dest:confs/etc/default/grub
+<<<<<<< dest:default/grub
+<<<<<<< dest:default/grub
+GRUB_CMDLINE_LINUX="subvol=@root loglevel=7 intel_pstate=disable nosplash nowatchdog nmi_watchdog=0 net.ifnames=0 intel_idle.max_cstate=10 processor.max_cstate=10"
+#GRUB_EARLY_INITRD_LINUX_CUSTOM="intel-ucode.img"
+GRUB_DEFAULT="0"
+#GRUB_DEFAULT="Void GNU/Linux, with Linux 6.6.116-yoga"
+GRUB_TIMEOUT="5"
+GRUB_TIMEOUT_STYLE="menu"
+GRUB_HIDDEN_TIMEOUT="5"
+GRUB_HIDDEN_TIMEOUT_QUIET="false"
+#GRUB_TIMEOUT_STYLE="hidden"
+GRUB_DISTRIBUTOR="Void"
+#GRUB_DISABLE_OS_PROBER=false
+GRUB_DISABLE_RECOVERY="true"
+GRUB_DISABLE_SUBMENU="y"
+GRUB_GFXMODE="1366x768x32"
+GRUB_GFXPAYLOAD_LINUX="1366x768"
+=======
+=======
+>>>>>>> source:../misc/confs/etc/default/grub
+GRUB_CMDLINE_LINUX="loglevel=3 audit=off net.ifnames=0 module_blacklist=iTCO_wdt,watchdog,nouveau nvidia-tesla-470-drm.modeset=1 pci=nomsi pci=noaer irqpoll intel_idle.max_cstate=0 processor.max_cstate=0 idle=poll acpi=noirq" # nolapic noapic
+# Select 5.10 kernel
+#GRUB_EARLY_INITRD_LINUX_CUSTOM="intel-ucode.img"
+GRUB_DEFAULT="3"
+GRUB_HIDDEN_TIMEOUT="3"
+GRUB_HIDDEN_TIMEOUT_QUIET="false"
+GRUB_TIMEOUT="3"
+#GRUB_TIMEOUT_STYLE="hidden"
+GRUB_TIMEOUT_STYLE="menu"
+GRUB_DISTRIBUTOR="Debian"
+#GRUB_DISABLE_OS_PROBER=false
+GRUB_DISABLE_RECOVERY="true"
+GRUB_DISABLE_SUBMENU="y"
+GRUB_GFXMODE="1920x1080x32"
+GRUB_GFXPAYLOAD_LINUX="1920x1080"
+
+<<<<<<< dest:confs/etc/default/grub
+>>>>>>> source:confs/etc/default/grub
+=======
+=======
+>>>>>>> source:small_files/etc/default/grub
+GRUB_CMDLINE_LINUX="rootflags=subvol=@root \
+security=disabled \
+rw ahci.mobile_lpm_policy=1 apparmor=0  \
+audit=0 cfg80211.ieee80211_regdom=IN  \
+efifb.mode_option=1366x768-32 \
+i8042.noloop i8042.nomux i8042.nopnp  \
+init=/sbin/init intel_idle.max_cstate=1 \
+intel_pstate=enable  \
+l1tf=off  \
+loglevel=1 mds=off mitigations=off \
+module_blacklist=nouveau,iTCO_wdt,iTCO_vendor_support  \
+net.ifnames=0 \
+pcie_aspm=off  \
+tsx_async_abort=off  \
+video=1366x768 \
+nvidia-drm.modeset=1  \
+drm_kms_helper.edid_firmware=/home/void/files/edid.bin"
+
+GRUB_DEFAULT="0"
+GRUB_HIDDEN_TIMEOUT="0"
+GRUB_HIDDEN_TIMEOUT_QUIET="true"
+GRUB_TIMEOUT="0"
+GRUB_TIMEOUT_STYLE="hidden"
+GRUB_DISTRIBUTOR="Gentoo"
+GRUB_DISABLE_RECOVERY="true"
+GRUB_DISABLE_OS_PROBER="true"
+GRUB_DISABLE_RECOVERY="true"
+GRUB_DISABLE_SUBMENU="y"
+GRUB_DISABLE_RECOVERY="true"
+GRUB_GFXMODE="1366x768x32"
+GRUB_GFXPAYLOAD_LINUX="1366x768"
+<<<<<<< dest:default/grub
+>>>>>>> source:small_files/etc/default/grub
+=======
+>>>>>>> source:../misc/confs/etc/default/grub
+=======
+>>>>>>> source:small_files/etc/default/grub

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+WORK="$HOME/work"
+KERNEL_SRC="$WORK/kernel-msm"
+mkdir -p "$WORK"
+cd "$WORK"
+
+# Clone toolchain
+[[ ! -d clang ]] &&  git clone --depth=1 https://gitlab.com/LeCmnGend/proton-clang.git clang
+
+# Clone kernel source
+[[ ! -d kernel-msm ]] && git clone --depth=1 https://github.com/thecatvoid/android_kernel_motorola_guamp kernel-msm
+
+# Set toolchain path
+PATH="$WORK/clang/bin:$PATH"
+
+# Build kernel
+cd "$KERNEL_SRC"
+
+make-kernel()
+{
+make "$@" O="out" ARCH="arm64" CC="clang" \
+CROSS_COMPILE="aarch64-linux-android-" \
+CROSS_COMPILE_ARM32="arm-linux-androideabi-" \
+AR="llvm-ar" \
+RANLIB="llvm-ranlib" \
+NM="llvm-nm" \
+OBJCOPY="llvm-objcopy" \
+OBJDUMP="llvm-objdump" \
+STRIP="llvm-strip"
+}
+
+make-kernel vendor/guamp_defconfig 
+make-kernel -j$(nproc --all) 
+
+# Upload built kernel
+cd $WORK
+[[ ! -d ANY ]] && git clone --depth=1 https://github.com/thecatvoid/AnyKernel3.git ANY
+cd ANY ; rm -rf *Image* *.zip
+cp $KERNEL_SRC/out/arch/arm64/boot/Image.gz ./
+date=$(date "+%Y%m%d%I%M%S")
+zip -r9 $date.zip * -x .git README.md *placeholder
+curl -T $date.zip bashupload.com
