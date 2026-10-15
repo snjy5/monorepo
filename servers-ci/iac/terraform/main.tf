@@ -342,7 +342,6 @@ resource "aws_instance" "server" {
       --node-ip="$PRIVATE_IP" \
       --advertise-address="$PRIVATE_IP" \
       --flannel-backend=vxlan \
-      --disable=traefik \
       --disable=servicelb \
       --disable=local-storage
 

@@ -1,0 +1,62 @@
+ ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-site-demo
+  namespace: default
+  labels:
+    app: client-site-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client-site-demo
+  template:
+    metadata:
+      labels:
+        app: client-site-demo
+    spec:
+      containers:
+      - name: nginx
+        image: nginxdemos/hello:plain-text
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            memory: "32Mi"
+            cpu: "50m"
+          requests:
+            memory: "16Mi"
+            cpu: "10m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: client-site-demo-svc
+  namespace: default
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 80
+  selector:
+    app: client-site-demo
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: client-site-demo-ingress
+  namespace: default
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: client-site-demo-svc
+            port:
+              number: 80
